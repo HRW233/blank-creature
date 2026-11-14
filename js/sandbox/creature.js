@@ -1,12 +1,13 @@
 'use strict';
 
 /* ------------------------------------------------------------------ *
- * creature.js - the body. Four legs with a five joint chain each, a    *
- * spine, neck and tail: 29 point masses, 39 bones and 25 contractile   *
- * muscles, integrated as a verlet ragdoll.                             *
- *                                                                      *
- * No rendering lives here on purpose: the trainer runs whole episodes   *
- * against this class without touching WebGL.                            *
+ * creature.js - the body. An upright biped: pelvis, chest, shoulders, *
+ * neck and head, two three-segment legs with feet, and two arms.      *
+ * 21 point masses, 37 bones and 25 contractile muscles, integrated   *
+ * as a verlet ragdoll.                                                *
+ *                                                                     *
+ * No rendering lives here on purpose: the trainer runs whole episodes *
+ * against this class without touching WebGL.                          *
  * ------------------------------------------------------------------ */
 
 const CR = {
@@ -23,134 +24,124 @@ const CR = {
 
 /* id, x, y, z, radius. +x is the creature's left, +z is forward. */
 const BODY_POINTS = [
-  ['withers', 0, 0.7, 0.4, 0.1],
-  ['chest', 0, 0.64, 0.18, 0.11],
-  ['spine', 0, 0.62, -0.06, 0.11],
-  ['hip', 0, 0.64, -0.3, 0.1],
-  ['rump', 0, 0.6, -0.48, 0.09],
+  ['pelvis', 0, 0.86, 0, 0.105],
+  ['chest', 0, 1.06, 0.005, 0.115],
+  ['shoulders', 0, 1.22, 0, 0.1],
+  ['neck', 0, 1.31, 0.01, 0.055],
+  ['head', 0, 1.45, 0.025, 0.145],
 
-  ['neck', 0, 0.78, 0.58, 0.07],
-  ['head', 0, 0.84, 0.76, 0.13],
+  ['shoulderL', 0.21, 1.19, 0, 0.06],
+  ['elbowL', 0.245, 0.97, 0.02, 0.05],
+  ['handL', 0.255, 0.76, 0.06, 0.06],
 
-  ['tail1', 0, 0.62, -0.62, 0.05],
-  ['tail2', 0, 0.54, -0.84, 0.04],
+  ['shoulderR', -0.21, 1.19, 0, 0.06],
+  ['elbowR', -0.245, 0.97, 0.02, 0.05],
+  ['handR', -0.255, 0.76, 0.06, 0.06],
 
-  ['hipFL', 0.2, 0.58, 0.34, 0.075],
-  ['kneeFL', 0.21, 0.34, 0.22, 0.07],
-  ['ankleFL', 0.21, 0.14, 0.32, 0.06],
-  ['heelFL', 0.21, 0.045, 0.27, 0.05],
-  ['toeFL', 0.21, 0.04, 0.44, 0.05],
+  ['hipL', 0.125, 0.8, 0, 0.07],
+  ['kneeL', 0.135, 0.45, 0.015, 0.065],
+  ['ankleL', 0.14, 0.13, 0, 0.055],
+  ['heelL', 0.14, 0.045, -0.08, 0.05],
+  ['toeL', 0.14, 0.04, 0.15, 0.052],
 
-  ['hipFR', -0.2, 0.58, 0.34, 0.075],
-  ['kneeFR', -0.21, 0.34, 0.22, 0.07],
-  ['ankleFR', -0.21, 0.14, 0.32, 0.06],
-  ['heelFR', -0.21, 0.045, 0.27, 0.05],
-  ['toeFR', -0.21, 0.04, 0.44, 0.05],
-
-  ['hipBL', 0.2, 0.58, -0.26, 0.075],
-  ['kneeBL', 0.21, 0.35, -0.38, 0.07],
-  ['ankleBL', 0.21, 0.14, -0.28, 0.06],
-  ['heelBL', 0.21, 0.045, -0.34, 0.05],
-  ['toeBL', 0.21, 0.04, -0.5, 0.05],
-
-  ['hipBR', -0.2, 0.58, -0.26, 0.075],
-  ['kneeBR', -0.21, 0.35, -0.38, 0.07],
-  ['ankleBR', -0.21, 0.14, -0.28, 0.06],
-  ['heelBR', -0.21, 0.045, -0.34, 0.05],
-  ['toeBR', -0.21, 0.04, -0.5, 0.05],
+  ['hipR', -0.125, 0.8, 0, 0.07],
+  ['kneeR', -0.135, 0.45, 0.015, 0.065],
+  ['ankleR', -0.14, 0.13, 0, 0.055],
+  ['heelR', -0.14, 0.045, -0.08, 0.05],
+  ['toeR', -0.14, 0.04, 0.15, 0.052],
 ];
 
 /* a, b, group */
 const BODY_BONES = [
-  ['withers', 'chest', 'torso'],
-  ['chest', 'spine', 'torso'],
-  ['spine', 'hip', 'torso'],
-  ['hip', 'rump', 'torso'],
-
-  ['withers', 'neck', 'neck'],
+  ['pelvis', 'chest', 'torso'],
+  ['chest', 'shoulders', 'torso'],
+  ['shoulders', 'neck', 'neck'],
   ['neck', 'head', 'neck'],
 
-  ['rump', 'tail1', 'tail'],
-  ['tail1', 'tail2', 'tail'],
+  ['shoulders', 'shoulderL', 'arm'],
+  ['shoulderL', 'elbowL', 'arm'],
+  ['elbowL', 'handL', 'arm'],
 
-  ['withers', 'hipFL', 'leg'],
-  ['hipFL', 'kneeFL', 'leg'],
-  ['kneeFL', 'ankleFL', 'leg'],
-  ['ankleFL', 'heelFL', 'leg'],
-  ['ankleFL', 'toeFL', 'leg'],
+  ['shoulders', 'shoulderR', 'arm'],
+  ['shoulderR', 'elbowR', 'arm'],
+  ['elbowR', 'handR', 'arm'],
 
-  ['withers', 'hipFR', 'leg'],
-  ['hipFR', 'kneeFR', 'leg'],
-  ['kneeFR', 'ankleFR', 'leg'],
-  ['ankleFR', 'heelFR', 'leg'],
-  ['ankleFR', 'toeFR', 'leg'],
+  ['pelvis', 'hipL', 'leg'],
+  ['hipL', 'kneeL', 'leg'],
+  ['kneeL', 'ankleL', 'leg'],
+  ['ankleL', 'heelL', 'leg'],
+  ['ankleL', 'toeL', 'leg'],
+  ['heelL', 'toeL', 'leg'],
+  ['hipL', 'ankleL', 'leg'],
+  ['kneeL', 'heelL', 'leg'],
 
-  ['hip', 'hipBL', 'leg'],
-  ['hipBL', 'kneeBL', 'leg'],
-  ['kneeBL', 'ankleBL', 'leg'],
-  ['ankleBL', 'heelBL', 'leg'],
-  ['ankleBL', 'toeBL', 'leg'],
+  ['pelvis', 'hipR', 'leg'],
+  ['hipR', 'kneeR', 'leg'],
+  ['kneeR', 'ankleR', 'leg'],
+  ['ankleR', 'heelR', 'leg'],
+  ['ankleR', 'toeR', 'leg'],
+  ['heelR', 'toeR', 'leg'],
+  ['hipR', 'ankleR', 'leg'],
+  ['kneeR', 'heelR', 'leg'],
 
-  ['hip', 'hipBR', 'leg'],
-  ['hipBR', 'kneeBR', 'leg'],
-  ['kneeBR', 'ankleBR', 'leg'],
-  ['ankleBR', 'heelBR', 'leg'],
-  ['ankleBR', 'toeBR', 'leg'],
+  ['pelvis', 'neck', 'torso'],
+  ['chest', 'head', 'neck'],
+  ['shoulderL', 'shoulderR', 'torso'],
 ];
 
 /* cross braces: a stiff spine is cheaper to control than a noodle */
 const BODY_BRACES = [
-  ['withers', 'spine'],
-  ['chest', 'hip'],
-  ['withers', 'hip'],
-  ['chest', 'rump'],
-  ['withers', 'head'],
-  ['hipFL', 'hipFR'],
-  ['hipBL', 'hipBR'],
-  /* spreader bars: without them the legs splay and the body pancakes */
-  ['kneeFL', 'kneeFR'],
-  ['kneeBL', 'kneeBR'],
-  ['ankleFL', 'ankleFR'],
-  ['ankleBL', 'ankleBR'],
+  ['pelvis', 'shoulders'],
+  ['chest', 'neck'],
+  ['pelvis', 'head'],
+  ['hipL', 'hipR'],
+  ['shoulderL', 'hipL'],
+  ['shoulderR', 'hipR'],
+  ['hipL', 'toeL'],
+  ['hipR', 'toeR'],
 ];
 
 /* id, a, b, stiffness, min length as a fraction of rest.
 
-   Each leg is a braced triangle: the lift muscle runs shoulder-to-ankle over
-   the knee (a telescoping strut), the fwd/back muscles pin the toe fore and
-   aft of it, and the ankle muscle sets the hoof angle. A triangle cannot
-   buckle, so the body stands without any control at all. */
+   The leg bones hold each leg straight and lock the foot flat, so the body
+   stands on two plates instead of folding at the knee. The muscles swing the
+   legs at the hip and drive the arms and torso: all the learning goes into
+   where to put its feet and how to keep the trunk up. */
 const BODY_MUSCLES = [
-  ['fLiftL', 'withers', 'ankleFL', 1, 0.8],
-  ['fForwardL', 'withers', 'toeFL', 0.85],
-  ['fBackL', 'chest', 'toeFL', 0.85],
-  ['fAnkleL', 'kneeFL', 'heelFL', 0.8],
+  /* left leg */
+  ['hipFlexL', 'pelvis', 'kneeL', 0.9],
+  ['hipExtL', 'chest', 'kneeL', 0.85],
+  ['toeLiftL', 'pelvis', 'toeL', 0.75],
+  ['toeDropL', 'chest', 'toeL', 0.7],
+  ['stepL', 'pelvis', 'heelL', 0.75],
 
-  ['fLiftR', 'withers', 'ankleFR', 1, 0.8],
-  ['fForwardR', 'withers', 'toeFR', 0.85],
-  ['fBackR', 'chest', 'toeFR', 0.85],
-  ['fAnkleR', 'kneeFR', 'heelFR', 0.8],
+  /* right leg */
+  ['hipFlexR', 'pelvis', 'kneeR', 0.9],
+  ['hipExtR', 'chest', 'kneeR', 0.85],
+  ['toeLiftR', 'pelvis', 'toeR', 0.75],
+  ['toeDropR', 'chest', 'toeR', 0.7],
+  ['stepR', 'pelvis', 'heelR', 0.75],
 
-  ['bLiftL', 'hip', 'ankleBL', 1, 0.8],
-  ['bForwardL', 'spine', 'toeBL', 0.85],
-  ['bBackL', 'rump', 'toeBL', 0.85],
-  ['bAnkleL', 'kneeBL', 'heelBL', 0.8],
+  /* left arm */
+  ['armSwingL', 'chest', 'elbowL', 0.8],
+  ['armBackL', 'pelvis', 'elbowL', 0.7],
+  ['elbowL', 'shoulders', 'handL', 0.75],
+  ['wristL', 'elbowL', 'handL', 0.7],
+  ['reachL', 'shoulderL', 'handL', 0.65],
 
-  ['bLiftR', 'hip', 'ankleBR', 1, 0.8],
-  ['bForwardR', 'spine', 'toeBR', 0.85],
-  ['bBackR', 'rump', 'toeBR', 0.85],
-  ['bAnkleR', 'kneeBR', 'heelBR', 0.8],
+  /* right arm */
+  ['armSwingR', 'chest', 'elbowR', 0.8],
+  ['armBackR', 'pelvis', 'elbowR', 0.7],
+  ['elbowR', 'shoulders', 'handR', 0.75],
+  ['wristR', 'elbowR', 'handR', 0.7],
+  ['reachR', 'shoulderR', 'handR', 0.65],
 
-  ['arch', 'withers', 'hip', 0.9],
-  ['neckLift', 'chest', 'neck', 0.8],
-  ['headPitch', 'withers', 'head', 0.7],
-  ['headL', 'hipFL', 'head', 0.6],
-  ['headR', 'hipFR', 'head', 0.6],
-  ['bendL', 'hipFL', 'rump', 0.7],
-  ['bendR', 'hipFR', 'rump', 0.7],
-
-  ['tailCurl', 'rump', 'tail2', 0.7],
-  ['tailLift', 'hip', 'tail2', 0.6],
+  /* torso and head */
+  ['belly', 'pelvis', 'chest', 0.9],
+  ['lean', 'pelvis', 'shoulders', 0.9],
+  ['sideBend', 'hipL', 'shoulderR', 0.7],
+  ['neckLift', 'chest', 'neck', 0.85],
+  ['headPitch', 'shoulders', 'head', 0.75],
 ];
 
 const SENSOR_COUNT = 30;
@@ -207,7 +198,7 @@ class Creature {
 
     this.act = new Float32Array(MUSCLE_COUNT);
     this.sensors = new Float32Array(SENSOR_COUNT);
-    this.contacts = [false, false, false, false];
+    this.contacts = [false, false];
     this.time = 0;
 
     const d = (a, b) => {
@@ -218,18 +209,17 @@ class Creature {
       const dz = B.rz - A.rz;
       return Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
     };
-    this.restLimb = {
-      FL: d('hipFL', 'ankleFL'),
-      FR: d('hipFR', 'ankleFR'),
-      BL: d('hipBL', 'ankleBL'),
-      BR: d('hipBR', 'ankleBR'),
-    };
+    this.restLimb = { L: d('hipL', 'ankleL'), R: d('hipR', 'ankleR') };
     this.legs = [
-      { k: 'FL', hip: 'hipFL', ankle: 'ankleFL', heel: 'heelFL', toe: 'toeFL' },
-      { k: 'FR', hip: 'hipFR', ankle: 'ankleFR', heel: 'heelFR', toe: 'toeFR' },
-      { k: 'BL', hip: 'hipBL', ankle: 'ankleBL', heel: 'heelBL', toe: 'toeBL' },
-      { k: 'BR', hip: 'hipBR', ankle: 'ankleBR', heel: 'heelBR', toe: 'toeBR' },
+      { k: 'L', hip: 'hipL', knee: 'kneeL', ankle: 'ankleL', heel: 'heelL', toe: 'toeL' },
+      { k: 'R', hip: 'hipR', knee: 'kneeR', ankle: 'ankleR', heel: 'heelR', toe: 'toeR' },
     ];
+    this.restArm = { L: d('shoulderL', 'handL'), R: d('shoulderR', 'handR') };
+    this.arms = [
+      { k: 'L', shoulder: 'shoulderL', elbow: 'elbowL', hand: 'handL' },
+      { k: 'R', shoulder: 'shoulderR', elbow: 'elbowR', hand: 'handR' },
+    ];
+    this.restHeight = this.points[this.index.pelvis].ry;
   }
 
   link(a, b, stiff, group) {
@@ -256,7 +246,7 @@ class Creature {
     }
     this.act.fill(0);
     this.time = 0;
-    for (let i = 0; i < 4; i++) this.contacts[i] = false;
+    for (let i = 0; i < this.contacts.length; i++) this.contacts[i] = false;
   }
 
   /* one fixed timestep */
@@ -373,11 +363,11 @@ class Creature {
         p.z -= (p.z - p.pz) * 0.4;
       }
     }
-    for (let l = 0; l < 4; l++) {
+    for (let l = 0; l < this.legs.length; l++) {
       const leg = this.legs[l];
       const heel = pts[this.index[leg.heel]];
       const toe = pts[this.index[leg.toe]];
-      this.contacts[l] = heel.y < 0.1 && toe.y < 0.1;
+      this.contacts[l] = heel.y < 0.09 && toe.y < 0.1;
     }
   }
 
@@ -389,7 +379,7 @@ class Creature {
     }
   }
 
-  pelvis() { return this.points[this.index.spine]; }
+  pelvis() { return this.points[this.index.pelvis]; }
 
   pelvisY() { return this.pelvis().y; }
 
@@ -410,29 +400,45 @@ class Creature {
     return Math.sqrt(dx * dx + dz * dz);
   }
 
-  /* torso pitch relative to level: 0 when the back is horizontal */
-  pitch() {
+  /* torso axis: from the pelvis up to the shoulders */
+  torso() {
     const pts = this.points;
-    const a = pts[this.index.withers];
-    const b = pts[this.index.rump];
+    const a = pts[this.index.shoulders];
+    const b = pts[this.index.pelvis];
     const dx = a.x - b.x;
     const dy = a.y - b.y;
     const dz = a.z - b.z;
     const d = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
-    return dy / d;
+    return { x: dx / d, y: dy / d, z: dz / d };
+  }
+
+  /* how far the torso leans off vertical: 0 is bolt upright */
+  pitch() {
+    return 1 - this.torso().y;
+  }
+
+  /* forward direction on the floor, from the hip axis */
+  forward() {
+    const pts = this.points;
+    const a = pts[this.index.hipL];
+    const b = pts[this.index.hipR];
+    let lx = a.x - b.x;
+    let lz = a.z - b.z;
+    const ll = Math.sqrt(lx * lx + lz * lz) || 1;
+    lx /= ll;
+    lz /= ll;
+    /* forward is the left axis turned a quarter turn on the floor */
+    return { x: lz, z: -lx };
   }
 
   heading() {
-    const pts = this.points;
-    const a = pts[this.index.withers];
-    const b = pts[this.index.rump];
-    const dx = a.x - b.x;
-    const dz = a.z - b.z;
-    return Math.atan2(dx, dz);
+    const f = this.forward();
+    return Math.atan2(f.x, f.z);
   }
 
   upY() {
-    return Math.max(-1, Math.min(1, 1 - Math.abs(this.pitch()) * 2));
+    const u = this.torso().y;
+    return u > 1 ? 1 : u < -1 ? -1 : u;
   }
 
   energy() {
@@ -448,35 +454,28 @@ class Creature {
     const I = this.index;
     const dt = CR.DT;
 
-    const P = pts[I.spine];
-    const W = pts[I.withers];
-    const R = pts[I.rump];
+    const P = pts[I.pelvis];
+    const H = pts[I.head];
+    const N = pts[I.neck];
+    const t = this.torso();
+    const f = this.forward();
 
     const pvx = (P.x - P.px) / dt;
     const pvy = (P.y - P.py) / dt;
     const pvz = (P.z - P.pz) / dt;
 
-    let fdx = W.x - R.x;
-    let fdz = W.z - R.z;
-    const fl = Math.sqrt(fdx * fdx + fdz * fdz) || 1;
-    fdx /= fl;
-    fdz /= fl;
-
-    const head = pts[I.head];
-    const neck = pts[I.neck];
-
-    s[0] = P.y;
+    s[0] = (P.y - this.restHeight) * 2.4;
     s[1] = pvy * 6;
     s[2] = pvz * 3;
     s[3] = pvx * 3;
-    s[4] = this.pitch() * 3;
-    s[5] = fdx;
-    s[6] = (pts[I.hipFL].y - pts[I.hipFR].y) * 4;
-    s[7] = head.y;
-    s[8] = (pts[I.tail2].y - 0.54) * 3;
+    s[4] = (1 - t.y) * 3;
+    s[5] = f.x;
+    s[6] = f.z;
+    s[7] = H.y - 1.45;
+    s[8] = (H.z - N.z) * 3;
 
     let o = 9;
-    for (let l = 0; l < 4; l++) {
+    for (let l = 0; l < this.legs.length; l++) {
       const leg = this.legs[l];
       const hip = pts[I[leg.hip]];
       const ankle = pts[I[leg.ankle]];
@@ -485,26 +484,40 @@ class Creature {
       const dz = ankle.z - hip.z;
       const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
       s[o++] = (d / this.restLimb[leg.k] - 1) * 2.5;
-      s[o++] = ankle.y * 4;
+      s[o++] = ankle.y * 3;
       s[o++] = this.contacts[l] ? 1 : 0;
     }
 
-    s[21] = (head.z - neck.z) * 4;
-    s[22] = (head.y - neck.y) * 4;
+    for (let a = 0; a < this.arms.length; a++) {
+      const arm = this.arms[a];
+      const shoulder = pts[I[arm.shoulder]];
+      const hand = pts[I[arm.hand]];
+      const dx = hand.x - shoulder.x;
+      const dy = hand.y - shoulder.y;
+      const dz = hand.z - shoulder.z;
+      const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      s[o++] = (d / this.restArm[arm.k] - 1) * 2;
+      s[o++] = (hand.z - shoulder.z) * 4;
+    }
+
+    s[o++] = (H.y - N.y) * 3;
+    s[o++] = (H.x - N.x) * 3;
 
     const dx = tx - P.x;
     const dz = tz - P.z;
     const dist = Math.sqrt(dx * dx + dz * dz);
-    const along = dist > 1e-4 ? (dx * fdx + dz * fdz) / dist : 1;
-    const side = dist > 1e-4 ? (dx * -fdz + dz * fdx) / dist : 0;
-    s[23] = side;
-    s[24] = along;
-    s[25] = Math.min(dist / 4, 1.4);
+    const along = dist > 1e-4 ? (dx * f.x + dz * f.z) / dist : 1;
+    const side = dist > 1e-4 ? (dx * -f.z + dz * f.x) / dist : 0;
+    s[o++] = side;
+    s[o++] = along;
+    s[o++] = Math.min(dist / 4, 1.4);
+    s[o++] = t.x * 2;
 
-    s[26] = Math.sin(this.time * 1.2);
-    s[27] = Math.cos(this.time * 1.2);
-    s[28] = Math.sin(this.time * 0.45);
-    s[29] = Math.cos(this.time * 0.45);
+    s[o++] = Math.sin(this.time * 1.2);
+    s[o++] = Math.cos(this.time * 1.2);
+    s[o++] = Math.sin(this.time * 0.45);
+    s[o++] = Math.cos(this.time * 0.45);
+    s[o++] = 0;
 
     for (let i = 0; i < SENSOR_COUNT; i++) {
       const v = s[i];
