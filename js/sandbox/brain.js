@@ -13,7 +13,7 @@ const BRAIN = {
   POP: 24,
   SIGMA: 0.1,
   LR: 0.025,
-  STEPS: 300,
+  STEPS: 720,
   CONTROL_EVERY: 3,
   EVAL_MS: 7,
 };
@@ -299,9 +299,10 @@ class Evolution {
     this.theta = new Float32Array(this.brain.paramCount);
     for (let l = 0; l < 3; l++) {
       const fanIn = this.sizes[l];
-      const nW = fanIn * this.sizes[l + 1];
-      const base = this.brain.offsets[l];
+      const fanOut = this.sizes[l + 1];
       const scale = 0.85 / Math.sqrt(fanIn);
+      const base = this.brain.offsets[l];
+      const nW = fanIn * fanOut;
       for (let i = 0; i < nW; i++) this.theta[base + i] = SB.gauss(rnd) * scale;
     }
     this.bestTheta = this.theta.slice();
