@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>BLANK // CREATURE — 3D neuro sandbox</title>
+<link rel="stylesheet" href="sandbox.css" />
+</head>
+<body>
+  <canvas id="scene"></canvas>
+
+  <div id="hud">
+    <header>
+      <div class="brand">BLANK<span class="slash">//</span>CREATURE</div>
+      <div class="tag">29 joints, 25 muscles, and no idea what it is for</div>
+    </header>
+
+    <section id="stats" class="panel">
+      <div class="head"><span>TELEMETRY</span><i class="live"></i></div>
+      <div class="rows">
+        <div class="row"><span>GENERATION</span><b id="stat-gen">0</b></div>
+        <div class="row"><span>EPISODES</span><b id="stat-ep">0</b></div>
+        <div class="row"><span>BEST SCORE</span><b id="stat-best">—</b></div>
+        <div class="row"><span>POSTURE</span><b id="stat-up">—</b></div>
+        <div class="row"><span>TO GOAL</span><b id="stat-range">—</b></div>
+        <div class="row"><span>INSTINCT</span><b id="stat-state">—</b></div>
+        <div class="row"><span>ATTEMPT</span><b id="stat-attempts">1</b></div>
+        <div class="row"><span>PELVIS X,Z</span><b id="stat-pos">0, 0</b></div>
+      </div>
+
+      <div class="genbar"><i id="gen-bar"></i></div>
+
+      <div class="head small"><span>LEARNING CURVE</span><b class="gold">best</b></div>
+      <canvas id="curve"></canvas>
+
+      <div class="head small"><span>MUSCLE DRIVE</span></div>
+      <div id="bars" class="bars"></div>
+
+      <p class="note">
+        The net starts as gaussian noise. Every generation, twenty-four mutated
+        copies run a two-and-a-half-second episode; the ones that cover ground
+        while staying on their feet rewrite the weights.
+      </p>
+    </section>
+
+    <section id="mind" class="panel">
+      <div class="head"><span>POLICY NET</span><span id="mind-note" class="dim">untrained</span></div>
+      <canvas id="brain"></canvas>
+      <div class="legend">
+        <span><i class="dot cyan"></i>excitatory</span>
+        <span><i class="dot magenta"></i>inhibitory</span>
+        <span><i class="dot gold"></i>motors</span>
+      </div>
+    </section>
+
+    <footer id="controls">
+      <button id="btn-train">TRAINING ON</button>
+      <button id="btn-speed">SPEED NORMAL</button>
+      <button id="btn-pause">PAUSE</button>
+      <button id="btn-reset">RESPAWN</button>
+      <button id="btn-xray">X-RAY</button>
+      <button id="btn-new">NEW BRAIN</button>
+      <span class="hint">drag to orbit · wheel to zoom · click the floor to move the goal</span>
+    </footer>
+
+    <div id="fatal" hidden></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+  <script src="js/sandbox/creature.js"></script>
+  <script src="js/sandbox/brain.js"></script>
+  <script src="js/sandbox/world.js"></script>
+  <script src="js/sandbox/app.js"></script>
+</body>
+</html>
