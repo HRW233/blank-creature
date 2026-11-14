@@ -31,7 +31,8 @@
     tick: 0,
     policyVersion: -1,
     edgeVersion: -1,
-    target: { x: 0, z: 2.6 },
+    target: { x: 0, z: CR.TRACK },
+    bestTime: 0,
     hudClock: 0,
     vizClock: 0,
   };
@@ -162,9 +163,20 @@
       guard++;
     }
 
-    /* no walls around the stage: start the attempt again if it wanders off it */
+    /* the race: cross the line and the clock stops, run out of ten seconds
+       and the attempt is over. Bolt's record is the thing to beat. */
     const pel = creature.pelvis();
-    if (Math.sqrt(pel.x * pel.x + pel.z * pel.z) > CR.ARENA - 0.45) {
+    if (pel.z >= CR.TRACK) {
+      if (!state.bestTime || state.attemptTime < state.bestTime) {
+        state.bestTime = state.attemptTime;
+        world.flash();
+        setNote(state.bestTime < CR.BOLT ? 'BEAT BOLT · ' + state.bestTime.toFixed(2) + ' s'
+          : '100 m · ' + state.bestTime.toFixed(2) + ' s');
+      }
+      respawn(false);
+      return;
+    }
+    if (pel.x > CR.LANE + 1.2 || pel.x < -CR.LANE - 1.2 || pel.z < -2.5) {
       respawn(false);
       return;
     }
@@ -172,8 +184,8 @@
     if (creature.headY() < 0.3 || creature.pelvisY() < 0.16) state.downTime += dt;
     else state.downTime = 0;
 
-    if (state.downTime > 1.25 || state.attemptTime > 16) respawn(false);
-    world.addTrailPoint(creature.pelvis().x, creature.pelvis().z, dt);
+    if (state.downTime > 1.25 || state.attemptTime > CR.RACE) respawn(false);
+    world.addTrailPoint(pel.x, pel.z, dt);
   }
 
   function frame(now) {
@@ -216,7 +228,7 @@
 
   function drawTelemetry() {
     const p = creature.pelvis();
-    const dist = creature.distanceTo(state.target.x, state.target.z);
+    const covered = Math.max(0, Math.min(CR.TRACK, p.z));
     const up = Math.max(0, creature.upY());
     const speed = creature.pelvisSpeed();
 
@@ -224,12 +236,16 @@
     $('stat-ep').textContent = evo.episodes;
     $('stat-best').textContent = evo.bestFit === -Infinity ? '—' : evo.bestFit.toFixed(2);
     $('stat-up').textContent = Math.round(up * 100) + '%';
-    $('stat-range').textContent = dist.toFixed(2) + ' m';
+    $('stat-range').textContent = covered.toFixed(1) + ' / ' + CR.TRACK + ' m';
+    $('stat-clock').textContent = state.attemptTime.toFixed(2) + ' s';
+    $('stat-speed').textContent = speed.toFixed(2) + ' m/s';
+    $('stat-besttime').textContent = state.bestTime
+      ? state.bestTime.toFixed(2) + ' s' + (state.bestTime < CR.BOLT ? ' · BEAT BOLT' : '')
+      : '—';
     $('stat-attempts').textContent = state.attempts;
     $('stat-state').textContent = state.paused ? 'PAUSED'
-      : state.downTime > 0.2 ? 'FALLING'
-        : dist < 0.6 ? 'AT GOAL'
-          : speed > 0.35 ? 'SEEKING' : 'HOLDING';
+      : state.downTime > 0.2 ? 'DOWN'
+        : up > 0.7 ? 'UPRIGHT' : 'SCRAMBLING';
 
     const prog = evo.candidates.length ? evo.cursor / evo.candidates.length : 0;
     $('gen-bar').style.width = Math.round(prog * 100) + '%';
@@ -241,7 +257,6 @@
       b.fill.style.width = Math.round((sum / n) * 100) + '%';
     }
 
-    $('stat-pos').textContent = p.x.toFixed(1) + ', ' + p.z.toFixed(1);
   }
 
   function fitCanvas(cv) {
@@ -476,16 +491,8 @@
       }
     });
 
-    canvas.addEventListener('pointerup', (e) => {
-      dragging = false;
-      if (moved > 6) return;
-      const hit = world.screenToFloor(e.clientX, e.clientY);
-      if (!hit) return;
-      state.target.x = hit.x;
-      state.target.z = hit.z;
-      world.setTarget(hit.x, hit.z);
-      world.clearTrail();
-    });
+    /* the finish line is fixed now, so a click only stops the orbit */
+    canvas.addEventListener('pointerup', () => { dragging = false; });
 
     canvas.addEventListener('pointercancel', () => { dragging = false; });
 
