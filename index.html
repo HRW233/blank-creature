@@ -12,7 +12,7 @@
   <div id="hud">
     <header>
       <div class="brand">BLANK<span class="slash">//</span>CREATURE</div>
-      <div class="tag">29 joints, 25 muscles, and no idea what it is for</div>
+      <div class="tag">29 joints, 25 muscles, one brain shared by everyone here</div>
     </header>
 
     <section id="stats" class="panel">
@@ -37,14 +37,15 @@
       <div id="bars" class="bars"></div>
 
       <p class="note">
-        The net starts as gaussian noise. Every generation, twenty-four mutated
-        copies run a two-and-a-half-second episode; the ones that cover ground
-        while staying on their feet rewrite the weights.
+        This brain was trained offline for 1,800 generations of twenty-four
+        mutated copies, each running a six-second episode. The weights are baked
+        in, so everyone who opens this link watches the same creature. TRAIN
+        LOCALLY forks it in your browser; SHARED BRAIN returns to the original.
       </p>
     </section>
 
     <section id="mind" class="panel">
-      <div class="head"><span>POLICY NET</span><span id="mind-note" class="dim">untrained</span></div>
+      <div class="head"><span>POLICY NET</span><span id="mind-note" class="dim">shared</span></div>
       <canvas id="brain"></canvas>
       <div class="legend">
         <span><i class="dot cyan"></i>excitatory</span>
@@ -54,12 +55,12 @@
     </section>
 
     <footer id="controls">
-      <button id="btn-train">TRAINING ON</button>
+      <button id="btn-train">TRAIN LOCALLY</button>
       <button id="btn-speed">SPEED NORMAL</button>
       <button id="btn-pause">PAUSE</button>
       <button id="btn-reset">RESPAWN</button>
       <button id="btn-xray">X-RAY</button>
-      <button id="btn-new">NEW BRAIN</button>
+      <button id="btn-new">SHARED BRAIN</button>
       <span class="hint">drag to orbit · wheel to zoom · click the floor to move the goal</span>
     </footer>
 
@@ -69,6 +70,7 @@
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="js/sandbox/creature.js"></script>
   <script src="js/sandbox/brain.js"></script>
+  <script src="js/sandbox/policy.js"></script>
   <script src="js/sandbox/world.js"></script>
   <script src="js/sandbox/app.js"></script>
 </body>
