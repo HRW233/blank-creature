@@ -272,11 +272,14 @@
     setText('stat-best', evo.bestFit === -Infinity ? '—' : evo.bestFit.toFixed(2));
     if (reward) {
       const parts = reward.parts;
-      setText('stat-reward', (reward.total >= 0 ? '+' : '') + reward.total.toFixed(1));
-      const paid = Math.max(1e-6, parts.stand + parts.progress + parts.upright + parts.survive + parts.finish);
-      setText('stat-paid', 'stand ' + Math.round((parts.stand / paid) * 100) +
-        '% · run ' + Math.round((parts.progress / paid) * 100) +
-        '% · line ' + Math.round((parts.finish / paid) * 100) + '%');
+      const total = Math.abs(reward.total) < 0.05 ? 0 : reward.total;
+      setText('stat-reward', (total > 0 ? '+' : '') + total.toFixed(1));
+      const forward = Math.max(0, parts.progress);
+      const paid = Math.max(1e-6, parts.stride + parts.stand + forward +
+        parts.upright + parts.survive + parts.finish);
+      setText('stat-paid', 'stride ' + Math.round((parts.stride / paid) * 100) +
+        '% · stand ' + Math.round((parts.stand / paid) * 100) +
+        '% · run ' + Math.round((forward / paid) * 100) + '%');
     }
     setText('stat-up', Math.round(up * 100) + '%');
     setText('stat-range', covered.toFixed(1) + ' / ' + CR.TRACK + ' m');
