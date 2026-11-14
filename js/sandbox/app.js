@@ -33,6 +33,7 @@
     edgeVersion: -1,
     target: { x: 0, z: CR.TRACK },
     bestTime: 0,
+    prevDist: 0,
     hudClock: 0,
     vizClock: 0,
   };
@@ -42,6 +43,7 @@
   let creature = null;
   let evo = null;
   let brain = null;
+  let reward = null;
   let edges = [];
   let bars = [];
   let lastTime = 0;
@@ -122,6 +124,11 @@
     state.attemptTime = 0;
     state.accum = 0;
     state.attempts = attempt;
+    /* each attempt is scored from zero by the same reward system the trainer
+       ranks candidates with, so the HUD shows the points as they are paid */
+    if (!reward) reward = new Reward();
+    reward.reset();
+    state.prevDist = creature.distanceTo(state.target.x, state.target.z);
     if (world) world.clearTrail();
   }
 
@@ -157,6 +164,11 @@
         creature.drive(out);
       }
       creature.step();
+      if (reward) {
+        const d = creature.distanceTo(state.target.x, state.target.z);
+        reward.step(creature, state.prevDist - d, creature.upY());
+        state.prevDist = d;
+      }
       state.accum -= STEP;
       state.attemptTime += STEP;
       state.tick++;
@@ -235,6 +247,14 @@
     $('stat-gen').textContent = evo.generation;
     $('stat-ep').textContent = evo.episodes;
     $('stat-best').textContent = evo.bestFit === -Infinity ? '—' : evo.bestFit.toFixed(2);
+    if (reward) {
+      const parts = reward.parts;
+      $('stat-reward').textContent = (reward.total >= 0 ? '+' : '') + reward.total.toFixed(1);
+      const paid = Math.max(1e-6, parts.stand + parts.progress + parts.upright + parts.survive + parts.finish);
+      $('stat-paid').textContent = 'stand ' + Math.round((parts.stand / paid) * 100) +
+        '% · run ' + Math.round((parts.progress / paid) * 100) +
+        '% · line ' + Math.round((parts.finish / paid) * 100) + '%';
+    }
     $('stat-up').textContent = Math.round(up * 100) + '%';
     $('stat-range').textContent = covered.toFixed(1) + ' / ' + CR.TRACK + ' m';
     $('stat-clock').textContent = state.attemptTime.toFixed(2) + ' s';
