@@ -102,7 +102,8 @@ class CreatureView {
     for (const m of mats) {
       m.transparent = on;
       m.opacity = on ? 0.14 : 1;
-      m.depthWrite = on;
+      m.depthWrite = !on;
+      m.needsUpdate = true;
     }
     this.jointMat.emissiveIntensity = on ? 0.95 : 0.55;
     for (const f of this.footMat) f.emissiveIntensity = on ? 0.8 : 0.45;
