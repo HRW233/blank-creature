@@ -309,6 +309,20 @@
     const up = Math.max(0, creature.upY());
     const speed = creature.pelvisSpeed();
 
+    /* the header runs the attempt against Bolt's record pace, so the gap is a
+       number that moves rather than a line of trivia */
+    const boltM = Math.min(CR.TRACK, state.attemptTime * (CR.TRACK / CR.BOLT));
+    const gap = boltM - covered;
+    setText('vs-you-m', covered.toFixed(1) + ' m');
+    setText('vs-bolt-m', boltM.toFixed(1) + ' m');
+    setText('vs-gap', Math.abs(gap) < 0.05 ? 'LEVEL'
+      : gap > 0 ? 'BOLT LEADS ' + gap.toFixed(1) + ' m'
+        : 'YOU LEAD ' + (-gap).toFixed(1) + ' m');
+    const youBar = $('vs-you');
+    const boltMark = $('vs-bolt');
+    if (youBar) youBar.style.width = ((covered / CR.TRACK) * 100).toFixed(1) + '%';
+    if (boltMark) boltMark.style.left = ((boltM / CR.TRACK) * 100).toFixed(1) + '%';
+
     /* the panel reports the swarm, not one lane: every episode trained across
        all lanes, the best policy in the pool, and the pooled progress */
     let eps = 0;
