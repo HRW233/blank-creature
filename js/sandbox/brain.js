@@ -16,6 +16,10 @@ const BRAIN = {
   STEPS: 1200,
   CONTROL_EVERY: 3,
   EVAL_MS: 7,
+  /* total training work per frame. Two episodes fit in one frame's budget, so
+     a training session scores twice as many episodes per second as it used to
+     while the renderer still gets the rest of the frame */
+  TRAIN_MS: 12,
   /* hard cap on candidates scored in one call, so a frozen or coarse clock
      cannot make a single lane swallow a whole frame */
   BATCH: 4,
