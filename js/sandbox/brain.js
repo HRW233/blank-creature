@@ -19,23 +19,38 @@ const BRAIN = {
 };
 
 /* ------------------------------------------------------------------ *
- * The reward system. One episode pays out six named parts and their   *
- * sum is the return evolution ranks a candidate by. Nothing here is a *
- * script: the creature is never told to stand, it is only ever paid.  *
- * Metres count only while the torso is upright, so crawling to the    *
- * line earns nothing, and the finish pays a bonus for the clock left. *
+ * The reward system. One episode pays out named parts and their sum is *
+ * the return evolution ranks a candidate by. Nothing here is a script: *
+ * the creature is never told to run, it is only ever paid, and it is    *
+ * paid like a runner. Distance only counts from an upright body with    *
+ * the hips at running height. A stride only counts when the feet       *
+ * alternate, the swinging leg left the floor and the hips actually     *
+ * travelled. Standing still is charged, and a fall costs him. Rolling  *
+ * or crawling earns nothing at all.                                    *
  * ------------------------------------------------------------------ */
 const REWARD = {
-  PROGRESS: 5.0,      // per metre gained in the right direction
-  STAY_FLOOR: 0.2,    // that much of the progress is paid whatever happens next
-  STAY_GAIN: 0.8,     // the rest scales with how long he stays on his feet
-  STAND: 20.0,        // per episode: standing tall, hips out of a crouch
-  UPRIGHT: 1.0,       // per episode: torso kept near vertical
-  SURVIVE: 2.0,       // per episode: lasting the full ten seconds
-  EFFORT: 0.02,       // charged per episode for muscle effort spent
-  FINISH: 40.0,       // crossing the line at all
-  FINISH_TIME: 25.0,  // times the fraction of the ten seconds still left
-  DOWN: 60,           // steps flat on the floor before the episode ends
+  /* 1 pays for balance only, 2 adds the race. The trainer uses 1 first so a
+     body that cannot yet stand is not asked to sprint, then switches to 2 and
+     keeps climbing from the brain it has. The page always runs tier 2. */
+  TIER: 2,
+  PROGRESS: 20.0,        // per metre gained by an upright runner
+  STAY_FLOOR: 0.2,       // that much of the progress is paid whatever happens next
+  STAY_GAIN: 0.8,        // the rest scales with how long he stays on his feet
+  STRIDE: 2.0,           // per real stride: alternate footfall, swing, advance
+  STRIDE_ADVANCE: 0.4,   // metres the hips must travel between footfalls: a stride
+  SWING: 0.05,           // per foot lifted clear while upright: dense stepping signal
+  UPRIGHT_GATE: 0.85,    // torso alignment needed for distance and stride pay
+  HIPS_GATE: 0.62,       // pelvis height needed for distance and stride pay
+  STAND: 12.0,           // per episode: standing tall, hips at running height
+  UPRIGHT: 2.0,          // per episode: torso kept near vertical
+  SURVIVE: 2.0,          // per episode: lasting the full ten seconds
+  EFFORT: 0.02,          // charged per episode for muscle effort spent
+  IDLE: 0.02,            // per step spent not moving forward: standing is not running
+  IDLE_SPEED: 0.3,       // metres per second of forward travel that counts as moving
+  FALL: 8.0,             // charged once, at the end of an episode he fell in
+  FINISH: 40.0,          // crossing the line at all
+  FINISH_TIME: 25.0,     // times the fraction of the ten seconds still left
+  DOWN: 60,              // steps flat on the floor before the episode ends
 };
 
 class Reward {
@@ -45,32 +60,73 @@ class Reward {
   }
 
   reset() {
-    this.parts = { progress: 0, stand: 0, upright: 0, survive: 0, effort: 0, finish: 0 };
+    this.parts = {
+      progress: 0, stride: 0, swing: 0, stand: 0, upright: 0, survive: 0,
+      effort: 0, idle: 0, fall: 0, finish: 0,
+    };
     this.total = 0;
     this.steps = 0;
     this.low = 0;
     this.fell = false;
     this.finished = false;
     this.timeLeft = 0;
+    this.strides = 0;
+    this.downL = false;
+    this.downR = false;
+    this.liftedL = false;
+    this.liftedR = false;
+    this.lastFoot = 0;
+    this.lastStrikeZ = 0;
+    this.touched = false;
   }
 
   /* one physics step: the only place the creature ever earns anything */
   step(c, gained, up) {
     this.steps++;
     const share = 1 / BRAIN.STEPS;
+    const pts = c.points;
+    const I = c.index;
 
-    /* forward progress, but only on two feet: the torso has to be within
-       about forty degrees of vertical and the hips up out of a crouch, and
-       the pay is discounted by how early in the episode it arrived, so a
-       lunge that ends in a faceplant is never worth a stride */
-    if (gained > 0 && up > 0.8 && c.pelvisY() > 0.6) {
+    /* what the feet are doing this instant: planted, or lifted clear */
+    const toeL = pts[I.toeL];
+    const heelL = pts[I.heelL];
+    const toeR = pts[I.toeR];
+    const heelR = pts[I.heelR];
+    const gapL = Math.min(toeL.y - toeL.r, heelL.y - heelL.r);
+    const gapR = Math.min(toeR.y - toeR.r, heelR.y - heelR.r);
+    const downL = gapL < 0.02;
+    const downR = gapR < 0.02;
+    if (!downL && gapL > 0.06) {
+      if (!this.liftedL) this.lift(up);
+      this.liftedL = true;
+    }
+    if (!downR && gapR > 0.06) {
+      if (!this.liftedR) this.lift(up);
+      this.liftedR = true;
+    }
+
+    /* footfalls: a stride is one foot taking over from the other, after the
+       swinging leg actually left the ground, with the hips moving forward */
+    if (downL && !this.downL) this.land(c, 1, up, this.liftedL);
+    if (downR && !this.downR) this.land(c, 2, up, this.liftedR);
+    this.downL = downL;
+    this.downR = downR;
+
+    const pel = c.pelvis();
+    const vz = (pel.z - pel.pz) / CR.DT;
+
+    /* metres, but only from an upright runner with his hips at running height:
+       rolling, crawling or a faceplant never earns distance. The pay is signed
+       along the lane, so rocking forward and back nets nothing: only real
+       travel up the track is worth anything. */
+    if (REWARD.TIER >= 2 && up > REWARD.UPRIGHT_GATE && c.pelvisY() > REWARD.HIPS_GATE) {
       const stay = REWARD.STAY_FLOOR + REWARD.STAY_GAIN * (this.steps / BRAIN.STEPS);
-      const pay = REWARD.PROGRESS * gained * stay;
+      const pay = REWARD.PROGRESS * vz * CR.DT * stay;
       this.parts.progress += pay;
       this.total += pay;
     }
 
-    const tall = Math.max(0, Math.min(1, (c.pelvisY() - 0.55) / 0.3));
+    const tall = Math.max(0, Math.min(1, (c.pelvisY() - 0.62) / 0.22));
     const stand = REWARD.STAND * tall * share;
     const posture = REWARD.UPRIGHT * Math.max(0, up) * share;
     const survive = REWARD.SURVIVE * share;
@@ -81,6 +137,18 @@ class Reward {
     this.parts.effort += effort;
     this.total += stand + posture + survive + effort;
 
+    /* standing still is not running: once he can balance, loitering is charged
+       so the only way to keep the posture money is to keep moving */
+    if (REWARD.TIER >= 2 && vz < REWARD.IDLE_SPEED) {
+      this.parts.idle -= REWARD.IDLE;
+      this.total -= REWARD.IDLE;
+    }
+
+    /* anything but a foot on the floor means he is rolling or crawling; that
+       is charged once when the episode ends, not per step, because a per-step
+       charge makes quitting early the cheapest policy in the population */
+    if (c.groundedBody() > 0) this.touched = true;
+
     /* half a second on the floor ends the episode: standing up is the first
        thing to learn, but a single stumbled frame is not a fall */
     if (c.headY() < 0.34 || c.pelvisY() < 0.3) {
@@ -89,6 +157,36 @@ class Reward {
     } else {
       this.low = 0;
     }
+    return this.total;
+  }
+
+  /* a foot leaving the ground while upright: dense signal that stepping pays */
+  lift(up) {
+    if (REWARD.TIER < 2 || up <= REWARD.UPRIGHT_GATE) return;
+    this.parts.swing += REWARD.SWING;
+    this.total += REWARD.SWING;
+  }
+
+  /* a footfall: paid as a stride only when it alternates, swings and advances */
+  land(c, side, up, lifted) {
+    const alternate = this.lastFoot !== 0 && this.lastFoot !== side;
+    const advanced = (c.pelvis().z - this.lastStrikeZ) > REWARD.STRIDE_ADVANCE;
+    if (REWARD.TIER >= 2 && alternate && advanced && lifted &&
+      up > REWARD.UPRIGHT_GATE && c.pelvisY() > REWARD.HIPS_GATE) {
+      this.parts.stride += REWARD.STRIDE;
+      this.total += REWARD.STRIDE;
+      this.strides++;
+    }
+    this.lastFoot = side;
+    this.lastStrikeZ = c.pelvis().z;
+    if (side === 1) this.liftedL = false;
+    else this.liftedR = false;
+  }
+
+  /* the end of an episode he never got up from */
+  fellOver() {
+    this.parts.fall -= REWARD.FALL;
+    this.total -= REWARD.FALL;
     return this.total;
   }
 
@@ -303,13 +401,13 @@ class Evolution {
       }
       if (rw.fell) break;
     }
+    if (rw.fell) rw.fellOver();
 
     /* what this candidate was actually paid, kept so the trainer and the page
        can show where an episode's points came from */
     this.lastReward = {
       total: rw.total,
-      parts: { progress: rw.parts.progress, stand: rw.parts.stand, upright: rw.parts.upright,
-        survive: rw.parts.survive, effort: rw.parts.effort, finish: rw.parts.finish },
+      parts: Object.assign({}, rw.parts),
       finished: rw.finished,
       steps: rw.steps,
     };
