@@ -42,6 +42,9 @@
     target: { x: 0, z: CR.TRACK },
     bestTime: 0,
     bestProj: 0,
+    bestReward: 0,
+    bestAttempt: 0,
+    sessionTime: 0,
     prevDist: 0,
     warned: false,
     hudClock: 0,
@@ -178,6 +181,10 @@
         const d = creature.distanceTo(state.target.x, state.target.z);
         reward.step(creature, state.prevDist - d, creature.upY());
         state.prevDist = d;
+        if (reward.total > state.bestReward) {
+          state.bestReward = reward.total;
+          state.bestAttempt = state.attempts;
+        }
       }
       state.accum -= STEP;
       state.attemptTime += STEP;
@@ -236,6 +243,8 @@
     lastTime = now;
     if (!(dt > 0)) dt = 1 / 60;
     if (dt > 0.1) dt = 0.1;
+    /* wall clock since the page opened: the one number that always moves */
+    state.sessionTime += dt;
 
     if (evo.policyVersion !== state.policyVersion) {
       state.policyVersion = evo.policyVersion;
@@ -275,6 +284,9 @@
     const speed = creature.pelvisSpeed();
 
     setText('stat-gen', evo.generation);
+    const mins = Math.floor(state.sessionTime / 60);
+    const secs = Math.floor(state.sessionTime % 60);
+    setText('stat-session', mins + ':' + String(secs).padStart(2, '0'));
     /* the offline run's episodes plus every attempt watched since load, so the
        counter keeps climbing instead of stopping at the baked-in total */
     setText('stat-ep', evo.episodes + (state.attempts - 1));
@@ -289,6 +301,9 @@
       setText('stat-paid', 'stride ' + Math.round((parts.stride / paid) * 100) +
         '% · stand ' + Math.round((parts.stand / paid) * 100) +
         '% · run ' + Math.round((forward / paid) * 100) + '%');
+    }
+    if (state.bestReward) {
+      setText('stat-bestreward', '+' + state.bestReward.toFixed(1) + ' · a' + state.bestAttempt);
     }
     setText('stat-up', Math.round(up * 100) + '%');
     setText('stat-range', covered.toFixed(1) + ' / ' + CR.TRACK + ' m');
