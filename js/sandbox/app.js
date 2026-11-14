@@ -54,7 +54,10 @@
   let world = null;
   let view = null;
   let creature = null;
-  let evo = null;
+  let swarm = [];
+  let frameLane = 0;
+  let sharedTheta = null;
+  let sharedFit = -Infinity;
   let brain = null;
   let reward = null;
   let edges = [];
@@ -72,9 +75,8 @@
     }
 
     creature = new Creature();
-    evo = new Evolution();
     brain = new Brain(SENSOR_COUNT + BRAIN.REC, BRAIN.HIDDEN1, BRAIN.HIDDEN2, MUSCLE_COUNT);
-    loadSharedPolicy();
+    spawnSwarm();
     view = new CreatureView(creature, world.scene);
     world.setTarget(state.target.x, state.target.z);
 
@@ -89,21 +91,33 @@
     window.addEventListener('resize', () => world.resize());
   }
 
-  /* the baked champion from policy.js: every visitor runs these weights, so
-     the link shows one shared creature instead of a private training run */
-  function loadSharedPolicy() {
-    evo.theta = Float32Array.from(POLICY.weights);
-    evo.bestTheta = evo.theta.slice();
-    evo.bestFit = POLICY.fitness;
-    evo.generation = POLICY.trained;
-    evo.episodes = POLICY.trained * BRAIN.POP;
-    /* the offline run's history, so the curve shows what was actually learned */
-    evo.curve = POLICY.curve
-      ? POLICY.curve.map((c) => ({ gen: c[0], best: c[1], top: c[1], mean: c[2] }))
-      : [];
-    evo.policyVersion++;
-    brain.setWeights(evo.bestTheta);
-    state.policyVersion = evo.policyVersion;
+  /* the baked champion from policy.js seeds every lane, so the link shows one
+     shared creature instead of a private training run. Up to BRAIN.LANES
+     lineages then evolve side by side from those same weights: a training
+     session works on several generations at once, and whichever lane finds a
+     better policy is promoted onto the creature being watched. */
+  function spawnSwarm() {
+    sharedTheta = Float32Array.from(POLICY.weights);
+    sharedFit = POLICY.fitness;
+    swarm = [];
+    for (let i = 0; i < BRAIN.LANES; i++) {
+      const lane = new Evolution();
+      lane.seedSalt = i * 104729;
+      lane.theta = sharedTheta.slice();
+      lane.bestTheta = lane.theta.slice();
+      lane.bestFit = POLICY.fitness;
+      lane.generation = POLICY.trained;
+      lane.episodes = 0;
+      /* stagger the lanes so they do not all start a generation on one frame */
+      lane.genClock = i * 0.02;
+      /* the offline run's history, so the curve shows what was actually learned */
+      lane.curve = POLICY.curve
+        ? POLICY.curve.map((c) => ({ gen: c[0], best: c[1], top: c[1], mean: c[2] }))
+        : [];
+      swarm.push(lane);
+    }
+    brain.setWeights(sharedTheta);
+    state.policyVersion++;
     state.edgeVersion = -1;
   }
 
@@ -146,8 +160,7 @@
   }
 
   function resetToShared() {
-    evo = new Evolution();
-    loadSharedPolicy();
+    spawnSwarm();
     respawn(true);
     setNote('shared · ' + POLICY.trained + ' gens');
   }
@@ -164,6 +177,27 @@
     /* force the animation to restart */
     void el.offsetWidth;
     el.classList.add('flash');
+  }
+
+  /* One lane works per frame and they take turns, so fifteen generations are
+     in flight at once while the frame still pays for a single episode. A lane
+     therefore sees time compressed by the number of lanes: pass its own share
+     of the wait back as real time so a generation starts when it should. */
+  function trainSwarm(dt) {
+    if (!swarm.length) return;
+    const lane = swarm[frameLane % swarm.length];
+    const index = frameLane % swarm.length;
+    frameLane = (frameLane + 1) % swarm.length;
+    lane.advance(dt * swarm.length, SPEEDS[state.speed], BRAIN.EVAL_MS);
+    if (lane.bestFit > sharedFit) {
+      sharedFit = lane.bestFit;
+      sharedTheta = Float32Array.from(lane.bestTheta);
+      brain.setWeights(sharedTheta);
+      state.policyVersion++;
+      world.flash();
+      flashHud();
+      setNote('lane ' + (index + 1) + ' · gen ' + lane.generation);
+    }
   }
 
   function stepActor(dt) {
@@ -246,16 +280,8 @@
     /* wall clock since the page opened: the one number that always moves */
     state.sessionTime += dt;
 
-    if (evo.policyVersion !== state.policyVersion) {
-      state.policyVersion = evo.policyVersion;
-      brain.setWeights(evo.bestTheta);
-      world.flash();
-      flashHud();
-      setNote('policy ' + evo.policyVersion);
-    }
-
     if (!state.paused) {
-      if (state.training) evo.advance(dt, SPEEDS[state.speed]);
+      if (state.training) trainSwarm(dt);
       stepActor(dt);
       world.animate(dt, now / 1000);
     }
@@ -283,14 +309,29 @@
     const up = Math.max(0, creature.upY());
     const speed = creature.pelvisSpeed();
 
-    setText('stat-gen', evo.generation);
+    /* the panel reports the swarm, not one lane: every episode trained across
+       all lanes, the best policy in the pool, and the pooled progress */
+    let eps = 0;
+    let bestFit = sharedFit;
+    let prog = 0;
+    for (const lane of swarm) {
+      eps += lane.episodes;
+      if (lane.bestFit > bestFit) bestFit = lane.bestFit;
+      prog += lane.candidates.length ? lane.cursor / lane.candidates.length : 0;
+    }
+    prog /= Math.max(1, swarm.length);
+    /* every lane is evolving its own generation, so count them all: a full
+       generation is BRAIN.POP episodes however many lanes chip at it */
+    const gen = POLICY.trained + Math.floor(eps / BRAIN.POP);
+
+    setText('stat-gen', gen);
     const mins = Math.floor(state.sessionTime / 60);
     const secs = Math.floor(state.sessionTime % 60);
     setText('stat-session', mins + ':' + String(secs).padStart(2, '0'));
     /* the offline run's episodes plus every attempt watched since load, so the
        counter keeps climbing instead of stopping at the baked-in total */
-    setText('stat-ep', evo.episodes + (state.attempts - 1));
-    setText('stat-best', evo.bestFit === -Infinity ? '—' : evo.bestFit.toFixed(2));
+    setText('stat-ep', POLICY.trained * BRAIN.POP + eps + (state.attempts - 1));
+    setText('stat-best', bestFit === -Infinity || !isFinite(bestFit) ? '—' : bestFit.toFixed(2));
     if (reward) {
       const parts = reward.parts;
       const total = Math.abs(reward.total) < 0.05 ? 0 : reward.total;
@@ -321,7 +362,6 @@
       : state.downTime > 0.2 ? 'DOWN'
         : up > 0.7 ? 'UPRIGHT' : 'SCRAMBLING');
 
-    const prog = evo.candidates.length ? evo.cursor / evo.candidates.length : 0;
     const bar = $('gen-bar');
     if (bar) bar.style.width = Math.round(prog * 100) + '%';
 
@@ -353,7 +393,15 @@
     const c = fitCanvas($('curve'));
     if (!c) return;
     const { ctx, w, h } = c;
-    const data = evo.curve;
+    /* the curve of whichever lane has run furthest */
+    let data = [];
+    let newest = -Infinity;
+    for (const lane of swarm) {
+      if (lane.generation >= newest) {
+        newest = lane.generation;
+        data = lane.curve;
+      }
+    }
 
     ctx.strokeStyle = 'rgba(0,245,212,0.12)';
     ctx.lineWidth = 1;
@@ -508,7 +556,7 @@
       const i = SPEED_ORDER.indexOf(state.speed);
       state.speed = SPEED_ORDER[(i + 1) % SPEED_ORDER.length];
       $('btn-speed').textContent = 'SPEED ' + state.speed.toUpperCase();
-      evo.genClock = 0;
+      for (const lane of swarm) lane.genClock = 0;
     });
 
     $('btn-pause').addEventListener('click', () => {
