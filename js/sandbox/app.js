@@ -1,8 +1,8 @@
 'use strict';
 
 /* ------------------------------------------------------------------ *
- * app.js - glue: run the actor in real time, train in the background, *
- * draw the telemetry and the live network.                            *
+ * app.js - glue: run the trained actor in real time, optionally train *
+ * a local fork, and draw the telemetry and the live network.          *
  * ------------------------------------------------------------------ */
 
 (function () {
@@ -23,7 +23,7 @@
 
   const state = {
     paused: false,
-    training: true,
+    training: false,
     speed: 'normal',
     attempts: 1,
     downTime: 0,
@@ -59,7 +59,7 @@
     creature = new Creature();
     evo = new Evolution();
     brain = new Brain(SENSOR_COUNT + BRAIN.REC, BRAIN.HIDDEN1, BRAIN.HIDDEN2, MUSCLE_COUNT);
-    brain.setWeights(evo.bestTheta);
+    loadSharedPolicy();
     view = new CreatureView(creature, world.scene);
     world.setTarget(state.target.x, state.target.z);
 
@@ -67,10 +67,29 @@
     bindUI();
     bindPointer();
     respawn(true);
+    setNote('shared · ' + POLICY.trained + ' gens');
 
     lastTime = performance.now();
     requestAnimationFrame(frame);
     window.addEventListener('resize', () => world.resize());
+  }
+
+  /* the baked champion from policy.js: every visitor runs these weights, so
+     the link shows one shared creature instead of a private training run */
+  function loadSharedPolicy() {
+    evo.theta = Float32Array.from(POLICY.weights);
+    evo.bestTheta = evo.theta.slice();
+    evo.bestFit = POLICY.fitness;
+    evo.generation = POLICY.trained;
+    evo.episodes = POLICY.trained * BRAIN.POP;
+    /* the offline run's history, so the curve shows what was actually learned */
+    evo.curve = POLICY.curve
+      ? POLICY.curve.map((c) => ({ gen: c[0], best: c[1], top: c[1], mean: c[2] }))
+      : [];
+    evo.policyVersion++;
+    brain.setWeights(evo.bestTheta);
+    state.policyVersion = evo.policyVersion;
+    state.edgeVersion = -1;
   }
 
   function buildBars() {
@@ -92,7 +111,9 @@
   }
 
   function respawn(initial) {
-    const rnd = SB.rng((Math.random() * 1e9) | 0);
+    const attempt = initial ? 1 : state.attempts + 1;
+    /* fixed seed per attempt: two people watching the link see the same run */
+    const rnd = SB.rng(0x9e3779b9 ^ (attempt * 2654435761));
     const offsets = new Float32Array(creature.points.length * 3);
     for (let i = 0; i < offsets.length; i++) offsets[i] = (rnd() * 2 - 1) * 0.012;
     creature.reset(offsets);
@@ -100,16 +121,15 @@
     state.downTime = 0;
     state.attemptTime = 0;
     state.accum = 0;
-    state.attempts = initial ? 1 : state.attempts + 1;
+    state.attempts = attempt;
     if (world) world.clearTrail();
   }
 
-  function newBrain() {
-    evo.reset();
-    brain.setWeights(evo.bestTheta);
-    state.policyVersion = evo.policyVersion;
+  function resetToShared() {
+    evo = new Evolution();
+    loadSharedPolicy();
     respawn(true);
-    setNote('untrained');
+    setNote('shared · ' + POLICY.trained + ' gens');
   }
 
   function setNote(text) {
@@ -141,6 +161,13 @@
       state.attemptTime += STEP;
       state.tick++;
       guard++;
+    }
+
+    /* no walls around the stage: start the attempt again if it wanders off it */
+    const pel = creature.pelvis();
+    if (Math.sqrt(pel.x * pel.x + pel.z * pel.z) > CR.ARENA - 0.45) {
+      respawn(false);
+      return;
     }
 
     if (creature.headY() < 0.3 || creature.pelvisY() < 0.16) state.downTime += dt;
@@ -383,8 +410,9 @@
   function bindUI() {
     $('btn-train').addEventListener('click', () => {
       state.training = !state.training;
-      $('btn-train').textContent = state.training ? 'TRAINING ON' : 'TRAINING OFF';
-      $('btn-train').classList.toggle('off', !state.training);
+      $('btn-train').textContent = state.training ? 'TRAINING LOCALLY' : 'TRAIN LOCALLY';
+      $('btn-train').classList.toggle('on', state.training);
+      setNote(state.training ? 'local fork' : 'shared · ' + POLICY.trained + ' gens');
     });
 
     $('btn-speed').addEventListener('click', () => {
@@ -401,7 +429,7 @@
     });
 
     $('btn-reset').addEventListener('click', () => respawn(false));
-    $('btn-new').addEventListener('click', newBrain);
+    $('btn-new').addEventListener('click', resetToShared);
 
     $('btn-xray').addEventListener('click', () => {
       view.setXray(!view.xray);
@@ -416,7 +444,7 @@
         $('btn-pause').click();
       } else if (k === 't') $('btn-train').click();
       else if (k === 'r') respawn(false);
-      else if (k === 'n') newBrain();
+      else if (k === 'n') resetToShared();
       else if (k === 'x') $('btn-xray').click();
       else if (k === 's') $('btn-speed').click();
     });
