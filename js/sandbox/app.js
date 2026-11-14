@@ -196,7 +196,10 @@
       const lane = swarm[index];
       frameLane = (frameLane + 1) % swarm.length;
       const left = budget - (performance.now() - t0);
-      lane.advance(dt * swarm.length, SPEEDS[state.speed], Math.max(1, left));
+      /* one episode per lane turn: a coarse clock must not let a single lane
+         swallow the whole budget, and the loop below is capped as well */
+      lane.advance(dt * swarm.length, SPEEDS[state.speed],
+        Math.max(1, Math.min(left, BRAIN.EVAL_MS)));
       if (lane.bestFit > sharedFit) {
         sharedFit = lane.bestFit;
         sharedTheta = Float32Array.from(lane.bestTheta);
@@ -207,7 +210,7 @@
         setNote('lane ' + (index + 1) + ' · gen ' + lane.generation);
       }
       turns++;
-    } while (performance.now() - t0 < budget && turns < swarm.length);
+    } while (performance.now() - t0 < budget && turns < BRAIN.TURNS);
   }
 
   function stepActor(dt) {
