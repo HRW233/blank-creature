@@ -458,6 +458,19 @@ class Creature {
     return e / this.act.length;
   }
 
+  /* how many non-foot parts are resting on the floor. A person running touches
+     the ground with feet only, so anything here means rolling or crawling. */
+  groundedBody() {
+    const pts = this.points;
+    let n = 0;
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i];
+      if (p.foot) continue;
+      if (p.y <= p.r + 0.02) n++;
+    }
+    return n;
+  }
+
   /* 30 floats describing the body and the goal, all roughly [-1, 1] */
   sense(tx, tz) {
     const s = this.sensors;
