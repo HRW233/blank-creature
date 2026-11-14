@@ -16,6 +16,13 @@ const BRAIN = {
   STEPS: 1200,
   CONTROL_EVERY: 3,
   EVAL_MS: 7,
+  /* hard cap on candidates scored in one call, so a frozen or coarse clock
+     cannot make a single lane swallow a whole frame */
+  BATCH: 4,
+  /* how many generations the page may evolve side by side. Each lane is its
+     own lineage from the same starting weights, so a training session explores
+     several directions at once instead of one after another. */
+  LANES: 15,
 };
 
 /* ------------------------------------------------------------------ *
@@ -312,13 +319,15 @@ class Evolution {
     this.cursor = 0;
     this.cfg = null;
     this.genClock = 0;
+    /* keeps parallel lanes from drawing the same random perturbations */
+    this.seedSalt = 0;
 
     this.lastMeans = { best: 0, mean: 0 };
   }
 
   startGeneration() {
     this.generation++;
-    const rnd = SB.rng(this.generation * 7919 + 13);
+    const rnd = SB.rng(this.generation * 7919 + 13 + this.seedSalt);
 
     /* one finishing line and one starting wobble shared by the whole
        generation, so the scores of the candidates are actually comparable.
@@ -353,7 +362,7 @@ class Evolution {
   }
 
   /* spread the generation over frames so the sandbox never stutters */
-  advance(dt, interval) {
+  advance(dt, interval, budgetMs) {
     this.genClock += dt;
     if (!this.candidates.length) {
       if (this.genClock < interval) return;
@@ -361,12 +370,14 @@ class Evolution {
       this.startGeneration();
     }
     const t0 = performance.now();
+    let tried = 0;
     while (this.cursor < this.candidates.length) {
       const cand = this.candidates[this.cursor];
       cand.fit = this.evaluate(cand.w);
       this.cursor++;
       this.episodes++;
-      if (performance.now() - t0 > BRAIN.EVAL_MS) break;
+      tried++;
+      if (tried >= BRAIN.BATCH || performance.now() - t0 > (budgetMs || BRAIN.EVAL_MS)) break;
     }
     if (this.cursor >= this.candidates.length) this.finishGeneration();
   }
