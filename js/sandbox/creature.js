@@ -108,7 +108,7 @@ const BODY_BRACES = [
    legs at the hip and drive the arms and torso: all the learning goes into
    where to put its feet and how to keep the trunk up. */
 const BODY_MUSCLES = [
-  /* left leg */
+  /* left leg: the bones hold it straight, these swing it at the hip */
   ['hipFlexL', 'pelvis', 'kneeL', 0.9],
   ['hipExtL', 'chest', 'kneeL', 0.85],
   ['toeLiftL', 'pelvis', 'toeL', 0.75],
@@ -127,14 +127,12 @@ const BODY_MUSCLES = [
   ['armBackL', 'pelvis', 'elbowL', 0.7],
   ['elbowL', 'shoulders', 'handL', 0.75],
   ['wristL', 'elbowL', 'handL', 0.7],
-  ['reachL', 'shoulderL', 'handL', 0.65],
 
   /* right arm */
   ['armSwingR', 'chest', 'elbowR', 0.8],
   ['armBackR', 'pelvis', 'elbowR', 0.7],
   ['elbowR', 'shoulders', 'handR', 0.75],
   ['wristR', 'elbowR', 'handR', 0.7],
-  ['reachR', 'shoulderR', 'handR', 0.65],
 
   /* torso and head */
   ['belly', 'pelvis', 'chest', 0.9],
@@ -142,6 +140,8 @@ const BODY_MUSCLES = [
   ['sideBend', 'hipL', 'shoulderR', 0.7],
   ['neckLift', 'chest', 'neck', 0.85],
   ['headPitch', 'shoulders', 'head', 0.75],
+  ['headTurn', 'shoulderL', 'head', 0.6],
+  ['headTilt', 'shoulderR', 'head', 0.6],
 ];
 
 const SENSOR_COUNT = 30;
