@@ -3,8 +3,9 @@
 /* ------------------------------------------------------------------ *
  * creature.js - the body. An upright biped: pelvis, chest, shoulders, *
  * neck and head, two three-segment legs with feet, and two arms.      *
- * 21 point masses, 25 bones, 8 braces and 25 contractile muscles,     *
- * integrated as a verlet ragdoll.                                     *
+ * 21 point masses, 25 bones, 6 braces and 25 contractile muscles,     *
+ * integrated as a verlet ragdoll. Nothing holds him up: the knees are  *
+ * free hinges, so balance is a thing the brain has to learn.           *
  *                                                                     *
  * No rendering lives here on purpose: the trainer runs whole episodes *
  * against this class without touching WebGL.                          *
@@ -14,11 +15,16 @@ const CR = {
   DT: 1 / 120,
   GRAVITY: 9.81,
   DAMP: 0.9975,
-  MAX_STEP: 0.2,
+  MAX_STEP: 0.1,
   CONTRACT: 0.42,
-  TONE: 0.05,
+  TONE: 0.09,
   MUSCLE_PASSES: 1,
-  ARENA: 5.2,
+  /* the race: 100 m from the start line, ten seconds on the clock,
+     Usain Bolt's 9.58 s world record to beat */
+  TRACK: 100,
+  LANE: 2.4,
+  RACE: 10,
+  BOLT: 9.58,
   clamp: (v, a, b) => (v < a ? a : v > b ? b : v),
 };
 
@@ -38,17 +44,19 @@ const BODY_POINTS = [
   ['elbowR', -0.245, 0.97, 0.02, 0.05],
   ['handR', -0.255, 0.76, 0.06, 0.06],
 
-  ['hipL', 0.125, 0.8, 0, 0.07],
-  ['kneeL', 0.135, 0.45, 0.015, 0.065],
-  ['ankleL', 0.14, 0.13, 0, 0.055],
-  ['heelL', 0.14, 0.045, -0.08, 0.05],
-  ['toeL', 0.14, 0.04, 0.15, 0.052],
+  /* a wide stance and long feet: an inverted pendulum needs a base of
+     support to fall back onto, or no feedback law can hold it up */
+  ['hipL', 0.15, 0.8, 0, 0.07],
+  ['kneeL', 0.17, 0.45, 0.015, 0.065],
+  ['ankleL', 0.185, 0.13, 0, 0.055],
+  ['heelL', 0.185, 0.045, -0.15, 0.05],
+  ['toeL', 0.185, 0.04, 0.24, 0.052],
 
-  ['hipR', -0.125, 0.8, 0, 0.07],
-  ['kneeR', -0.135, 0.45, 0.015, 0.065],
-  ['ankleR', -0.14, 0.13, 0, 0.055],
-  ['heelR', -0.14, 0.045, -0.08, 0.05],
-  ['toeR', -0.14, 0.04, 0.15, 0.052],
+  ['hipR', -0.15, 0.8, 0, 0.07],
+  ['kneeR', -0.17, 0.45, 0.015, 0.065],
+  ['ankleR', -0.185, 0.13, 0, 0.055],
+  ['heelR', -0.185, 0.045, -0.15, 0.05],
+  ['toeR', -0.185, 0.04, 0.24, 0.052],
 ];
 
 /* a, b, group */
@@ -80,10 +88,6 @@ const BODY_BONES = [
 
   ['heelL', 'toeL', 'leg'],
   ['heelR', 'toeR', 'leg'],
-  ['hipL', 'ankleL', 'leg'],
-  ['hipR', 'ankleR', 'leg'],
-  ['kneeL', 'heelL', 'leg'],
-  ['kneeR', 'heelR', 'leg'],
 
   ['pelvis', 'neck', 'torso'],
   ['chest', 'head', 'neck'],
@@ -98,30 +102,28 @@ const BODY_BRACES = [
   ['hipL', 'hipR'],
   ['shoulderL', 'hipL'],
   ['shoulderR', 'hipR'],
-  ['hipL', 'toeL'],
-  ['hipR', 'toeR'],
 ];
 
 /* id, a, b, stiffness, min length as a fraction of rest.
 
-   Each leg is a braced triangle: hip-to-ankle runs over the knee as a
-   telescoping strut, and the foot muscles pin heel and toe around the ankle.
-   A triangle cannot buckle, so the body stands without any control at all
-   and all the learning goes into where to put its feet. */
+   There is no brace holding the leg straight any more. The knee is a free
+   hinge and the only thing that can extend it is the knee strut, so a body
+   that switches its muscles off folds onto the floor. Standing up, staying up
+   and then sprinting are all learned. */
 const BODY_MUSCLES = [
   /* left leg: the bones hold it straight, these swing it at the hip */
   ['hipFlexL', 'pelvis', 'kneeL', 0.9],
   ['hipExtL', 'chest', 'kneeL', 0.85],
   ['toeLiftL', 'pelvis', 'toeL', 0.75],
   ['toeDropL', 'chest', 'toeL', 0.7],
-  ['stepL', 'pelvis', 'heelL', 0.75],
+  ['kneeL', 'hipL', 'ankleL', 0.95],
 
   /* right leg */
   ['hipFlexR', 'pelvis', 'kneeR', 0.9],
   ['hipExtR', 'chest', 'kneeR', 0.85],
   ['toeLiftR', 'pelvis', 'toeR', 0.75],
   ['toeDropR', 'chest', 'toeR', 0.7],
-  ['stepR', 'pelvis', 'heelR', 0.75],
+  ['kneeR', 'hipR', 'ankleR', 0.95],
 
   /* left arm */
   ['armSwingL', 'chest', 'elbowL', 0.8],
@@ -179,7 +181,7 @@ class Creature {
       return {
         id, rx: x, ry: y, rz: z, r,
         x, y, z, px: x, py: y, pz: z,
-        foot, friction: foot ? 0.72 : 0.18,
+        foot, friction: foot ? 0.9 : 0.18,
       };
     });
     this.index = {};
@@ -345,7 +347,8 @@ class Creature {
 
   collide() {
     const pts = this.points;
-    const arena = CR.ARENA;
+    /* an open lane, not a ring: nothing to bounce off except the lane edges */
+    const half = CR.LANE - 0.15;
     for (let i = 0; i < pts.length; i++) {
       const p = pts[i];
       if (p.y < p.r) {
@@ -353,15 +356,21 @@ class Creature {
         const f = p.friction;
         p.x -= (p.x - p.px) * f;
         p.z -= (p.z - p.pz) * f;
+        /* inelastic: kill the upward velocity as well, otherwise a stiff
+           muscle pressing into the floor turns it into a trampoline and the
+           body can be launched metres into the air */
+        p.py = p.y;
       }
-      const rad = Math.sqrt(p.x * p.x + p.z * p.z);
-      const lim = arena - p.r;
-      if (rad > lim) {
-        const k = lim / rad;
-        p.x *= k;
-        p.z *= k;
-        p.x -= (p.x - p.px) * 0.4;
-        p.z -= (p.z - p.pz) * 0.4;
+      if (p.x > half) {
+        p.x = half;
+        p.x -= (p.x - p.px) * 0.3;
+      } else if (p.x < -half) {
+        p.x = -half;
+        p.x -= (p.x - p.px) * 0.3;
+      }
+      if (p.z < -3) {
+        p.z = -3;
+        p.z -= (p.z - p.pz) * 0.3;
       }
     }
     for (let l = 0; l < this.legs.length; l++) {
@@ -428,8 +437,9 @@ class Creature {
     const ll = Math.sqrt(lx * lx + lz * lz) || 1;
     lx /= ll;
     lz /= ll;
-    /* forward is the left axis turned a quarter turn on the floor */
-    return { x: lz, z: -lx };
+    /* forward is the left axis turned a quarter turn on the floor, so that
+       f points at the toes: at rest, left is +x and forward is +z */
+    return { x: -lz, z: lx };
   }
 
   heading() {
@@ -511,7 +521,7 @@ class Creature {
     const side = dist > 1e-4 ? (dx * -f.z + dz * f.x) / dist : 0;
     s[o++] = side;
     s[o++] = along;
-    s[o++] = Math.min(dist / 4, 1.4);
+    s[o++] = Math.min(dist / 30, 3.4);
     s[o++] = t.x * 2;
 
     s[o++] = Math.sin(this.time * 1.2);
