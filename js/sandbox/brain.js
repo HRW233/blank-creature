@@ -22,7 +22,9 @@ const BRAIN = {
   TRAIN_MS: 12,
   /* hard cap on candidates scored in one call, so a frozen or coarse clock
      cannot make a single lane swallow a whole frame */
-  BATCH: 4,
+  BATCH: 2,
+  /* hard cap on lane turns in one frame, for the same reason */
+  TURNS: 4,
   /* how many generations the page may evolve side by side. Each lane is its
      own lineage from the same starting weights, so a training session explores
      several directions at once instead of one after another. */
