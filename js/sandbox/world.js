@@ -224,12 +224,13 @@ class SandboxWorld {
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(PAL.bg);
-    this.scene.fog = new THREE.Fog(PAL.bg, 11, 32);
+    this.scene.fog = new THREE.Fog(PAL.bg, 18, 120);
 
-    this.camera = new THREE.PerspectiveCamera(40, 1, 0.1, 90);
-    this.orbit = { radius: 5.4, theta: 0.72, phi: 1.22 };
-    this.focus = new THREE.Vector3(0, 0.6, 0);
-    this.focusWanted = new THREE.Vector3(0, 0.6, 0);
+    this.camera = new THREE.PerspectiveCamera(40, 1, 0.1, 260);
+    /* behind the runner, looking up the lane toward the finish */
+    this.orbit = { radius: 7.2, theta: Math.PI, phi: 1.16 };
+    this.focus = new THREE.Vector3(0, 0.8, 0);
+    this.focusWanted = new THREE.Vector3(0, 0.8, 0);
 
     this.buildStage();
     this.buildTarget();
@@ -245,46 +246,77 @@ class SandboxWorld {
     const scene = this.scene;
 
     const far = new THREE.Mesh(
-      new THREE.PlaneGeometry(70, 70),
+      new THREE.PlaneGeometry(140, 170),
       new THREE.MeshStandardMaterial({ color: PAL.floorFar, roughness: 1, metalness: 0 })
     );
     far.rotation.x = -Math.PI / 2;
-    far.position.y = -0.04;
+    far.position.set(0, -0.04, CR.TRACK / 2);
     far.receiveShadow = true;
     scene.add(far);
 
+    /* the lane: a straight hundred metres from the start line to the gate */
+    const trackLen = CR.TRACK + 14;
     const platform = new THREE.Mesh(
-      new THREE.CircleGeometry(CR.ARENA + 0.05, 96),
+      new THREE.PlaneGeometry(CR.LANE * 2 + 0.9, trackLen),
       new THREE.MeshStandardMaterial({ color: PAL.floor, roughness: 0.78, metalness: 0.25 })
     );
     platform.rotation.x = -Math.PI / 2;
+    platform.position.set(0, 0, CR.TRACK / 2);
     platform.receiveShadow = true;
     scene.add(platform);
 
-    const ringMat = new THREE.MeshBasicMaterial({ color: PAL.ring, transparent: true, opacity: 0.85, side: THREE.DoubleSide });
-    for (let r = 1; r <= 5; r++) {
-      const ring = new THREE.Mesh(new THREE.RingGeometry(r - 0.009, r + 0.009, 128), ringMat);
-      ring.rotation.x = -Math.PI / 2;
-      ring.position.y = 0.004;
-      scene.add(ring);
+    /* twenty-metre bands: cheap motion cue while the camera chases him */
+    const bandMat = new THREE.MeshBasicMaterial({ color: 0x101b27, transparent: true, opacity: 0.5 });
+    for (let z = -7; z < CR.TRACK + 7; z += 20) {
+      const band = new THREE.Mesh(new THREE.PlaneGeometry(CR.LANE * 2 + 0.9, 10), bandMat);
+      band.rotation.x = -Math.PI / 2;
+      band.position.set(0, 0.002, z + 5);
+      scene.add(band);
     }
 
-    const spokeMat = new THREE.MeshBasicMaterial({ color: 0x111b26, transparent: true, opacity: 0.7, side: THREE.DoubleSide });
-    for (let s = 0; s < 12; s++) {
-      const spoke = new THREE.Mesh(new THREE.PlaneGeometry(0.012, 5), spokeMat);
-      spoke.rotation.x = -Math.PI / 2;
-      spoke.rotation.z = (s / 12) * Math.PI * 2;
-      spoke.position.set(Math.sin((s / 12) * Math.PI * 2) * 2.5, 0.004, Math.cos((s / 12) * Math.PI * 2) * 2.5);
-      scene.add(spoke);
+    const lineMat = new THREE.MeshBasicMaterial({ color: PAL.ring, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
+    for (const side of [1, -1]) {
+      const line = new THREE.Mesh(new THREE.PlaneGeometry(0.06, trackLen), lineMat);
+      line.rotation.x = -Math.PI / 2;
+      line.position.set(side * CR.LANE, 0.003, CR.TRACK / 2);
+      scene.add(line);
     }
 
-    const rim = new THREE.Mesh(
-      new THREE.TorusGeometry(CR.ARENA + 0.05, 0.022, 8, 128),
-      new THREE.MeshStandardMaterial({ color: 0x0b3b3a, emissive: 0x0a6b64, emissiveIntensity: 0.9, roughness: 0.4 })
-    );
-    rim.rotation.x = -Math.PI / 2;
-    rim.position.y = 0.03;
-    scene.add(rim);
+    /* distance ticks every ten metres, heavier every fifty */
+    const tickMat = new THREE.MeshBasicMaterial({ color: 0x1b2c3c });
+    const tickMatMid = new THREE.MeshBasicMaterial({ color: 0x27414f });
+    for (let z = 10; z < CR.TRACK; z += 10) {
+      const tick = new THREE.Mesh(
+        new THREE.PlaneGeometry(CR.LANE * 2, z % 50 === 0 ? 0.2 : 0.09),
+        z % 50 === 0 ? tickMatMid : tickMat
+      );
+      tick.rotation.x = -Math.PI / 2;
+      tick.position.set(0, 0.004, z);
+      scene.add(tick);
+    }
+
+    const startLine = new THREE.Mesh(new THREE.PlaneGeometry(CR.LANE * 2, 0.18), lineMat);
+    startLine.rotation.x = -Math.PI / 2;
+    startLine.position.set(0, 0.005, 0);
+    scene.add(startLine);
+
+    /* the finish line and the gate over it */
+    const goldLine = new THREE.MeshBasicMaterial({ color: PAL.gold, transparent: true, opacity: 0.9, side: THREE.DoubleSide });
+    const finishLine = new THREE.Mesh(new THREE.PlaneGeometry(CR.LANE * 2, 0.32), goldLine);
+    finishLine.rotation.x = -Math.PI / 2;
+    finishLine.position.set(0, 0.006, CR.TRACK);
+    scene.add(finishLine);
+
+    const postMat = new THREE.MeshStandardMaterial({ color: 0x1a1409, emissive: 0x3a2a05, emissiveIntensity: 0.8, roughness: 0.4, metalness: 0.4 });
+    for (const side of [1, -1]) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.16, 3.2, 0.16), postMat);
+      post.position.set(side * (CR.LANE + 0.35), 1.6, CR.TRACK);
+      post.castShadow = true;
+      scene.add(post);
+    }
+    const banner = new THREE.Mesh(new THREE.BoxGeometry(CR.LANE * 2 + 0.9, 0.55, 0.12), postMat);
+    banner.position.set(0, 3.2, CR.TRACK);
+    scene.add(banner);
 
     this.hemi = new THREE.HemisphereLight(0x5d7fa8, 0x05070c, 0.55);
     scene.add(this.hemi);
@@ -302,6 +334,9 @@ class SandboxWorld {
     this.key.shadow.bias = -0.0009;
     this.key.shadow.normalBias = 0.02;
     scene.add(this.key);
+    /* the light rides along with the runner, otherwise the shadow map is
+       stuck at the start line and a hundred metres of track goes unlit */
+    if (this.key.target) scene.add(this.key.target);
 
     const cyan = new THREE.PointLight(0x00f5d4, 0.55, 12, 2);
     cyan.position.set(-4.2, 2.4, -3.4);
@@ -311,15 +346,15 @@ class SandboxWorld {
     magenta.position.set(4.2, 1.8, -3.2);
     scene.add(magenta);
 
-    /* distant slabs: cheap depth cues at the edge of the fog */
+    /* distant slabs: cheap depth cues down both sides of the lane */
     const slabMat = new THREE.MeshStandardMaterial({ color: 0x0a1019, roughness: 0.85, metalness: 0.2, emissive: 0x04141a, emissiveIntensity: 0.5 });
-    for (let i = 0; i < 14; i++) {
-      const a = (i / 14) * Math.PI * 2 + 0.3;
-      const rad = 10 + (i % 4) * 2.6;
-      const h = 1.6 + ((i * 37) % 9) * 0.55;
-      const slab = new THREE.Mesh(new THREE.BoxGeometry(0.5 + (i % 3) * 0.35, h, 0.5), slabMat);
-      slab.position.set(Math.sin(a) * rad, h / 2 - 0.05, Math.cos(a) * rad);
-      slab.rotation.y = a + 0.4;
+    for (let i = 0; i < 44; i++) {
+      const z = -8 + i * 2.6;
+      const side = i % 2 === 0 ? 1 : -1;
+      const h = 0.9 + ((i * 37) % 9) * 0.3;
+      const slab = new THREE.Mesh(new THREE.BoxGeometry(0.4 + (i % 3) * 0.3, h, 0.4), slabMat);
+      slab.position.set(side * (CR.LANE + 2.6 + (i % 4) * 0.7), h / 2 - 0.05, z);
+      slab.rotation.y = side * 0.3;
       scene.add(slab);
     }
   }
@@ -444,7 +479,7 @@ class SandboxWorld {
   }
 
   updateCamera(dt, x, y, z) {
-    this.focusWanted.set(x * 0.85, y * 0.85 + 0.15, z * 0.85);
+    this.focusWanted.set(x, y * 0.55 + 0.7, z + 1.2);
     const k = 1 - Math.pow(0.0015, Math.min(dt, 0.05));
     this.focus.lerp(this.focusWanted, k);
 
@@ -456,6 +491,10 @@ class SandboxWorld {
       this.focus.z + Math.cos(this.orbit.theta) * sp * r
     );
     this.camera.lookAt(this.focus);
+
+    /* keep the shadow-casting light centred on the runner */
+    this.key.position.set(x + 5.5, 9, z + 5);
+    if (this.key.target) this.key.target.position.set(x, 0, z);
   }
 
   screenToFloor(clientX, clientY) {
@@ -467,12 +506,9 @@ class SandboxWorld {
     const p = new THREE.Vector3();
     const hit = ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), p);
     if (!hit) return null;
-    const rad = Math.hypot(p.x, p.z);
-    const lim = CR.ARENA - 0.35;
-    if (rad > lim) {
-      p.x *= lim / rad;
-      p.z *= lim / rad;
-    }
+    /* the lane is a corridor now, so clamp to it instead of a circle */
+    p.x = SB.clamp(p.x, -CR.LANE + 0.3, CR.LANE - 0.3);
+    p.z = SB.clamp(p.z, -2, CR.TRACK + 2);
     return { x: p.x, z: p.z };
   }
 
