@@ -71,6 +71,7 @@ class CreatureView {
     }
 
     this.joints = [];
+    const I = creature.index;
     for (let i = 0; i < creature.points.length; i++) {
       const p = creature.points[i];
       const mat = p.id === 'head' ? this.headMat : p.id === 'heelL' || p.id === 'toeL'
@@ -78,22 +79,78 @@ class CreatureView {
       const mesh = new THREE.Mesh(this.sphere, mat);
       mesh.castShadow = true;
       this.group.add(mesh);
-      this.joints.push({ mesh, i, r: p.r });
+      this.joints.push({ mesh, i, r: p.r, foot: mat === this.footMat[0] ? 0 : mat === this.footMat[1] ? 1 : -1 });
     }
 
-    this.eyes = [];
-    for (let e = 0; e < 2; e++) {
-      const mesh = new THREE.Mesh(this.sphere, this.eyeMat);
-      mesh.scale.setScalar(0.032);
-      this.group.add(mesh);
-      this.eyes.push({ mesh, side: e === 0 ? 1 : -1 });
-    }
+    this.buildFace();
 
     this.xray = false;
     this.tmpDir = new THREE.Vector3();
     this.tmpMid = new THREE.Vector3();
+    this.tmpA = new THREE.Vector3();
+    this.tmpB = new THREE.Vector3();
+    this.tmpQ = new THREE.Quaternion();
+    this.tmpUp = new THREE.Vector3();
     this.tmpRight = new THREE.Vector3();
     this.tmpFwd = new THREE.Vector3();
+    this.tmpLook = new THREE.Vector3();
+  }
+
+  /* a goofy ahh smiley face, built in local space facing +z and glued to the
+     head every frame */
+  buildFace() {
+    const face = new THREE.Group();
+    this.group.add(face);
+    this.face = face;
+
+    const white = new THREE.MeshStandardMaterial({
+      color: 0xf6f9ff, roughness: 0.32, metalness: 0.02, emissive: 0x121a26, emissiveIntensity: 0.5,
+    });
+    const black = new THREE.MeshStandardMaterial({
+      color: 0x0a1016, roughness: 0.18, metalness: 0.05, emissive: 0x14040a, emissiveIntensity: 0.4,
+    });
+    const tooth = new THREE.MeshStandardMaterial({
+      color: 0xfff3cf, roughness: 0.35, metalness: 0.02, emissive: 0x2a2410, emissiveIntensity: 0.55,
+    });
+
+    const ball = (mat, x, y, z, r) => {
+      const m = new THREE.Mesh(this.sphere, mat);
+      m.position.set(x, y, z);
+      m.scale.setScalar(r);
+      face.add(m);
+      return m;
+    };
+
+    /* big dumb eyes */
+    ball(white, 0.058, 0.028, 0.104, 0.056);
+    ball(white, -0.058, 0.028, 0.104, 0.056);
+    const pupilL = ball(black, 0.066, 0.034, 0.152, 0.023);
+    const pupilR = ball(black, -0.066, 0.034, 0.152, 0.023);
+    this.pupils = [pupilL, pupilR];
+
+    /* a wide, stupid grin: half a torus lying on its back */
+    const grin = new THREE.Mesh(new THREE.TorusGeometry(0.072, 0.015, 8, 26, Math.PI), tooth);
+    grin.position.set(0, -0.028, 0.118);
+    grin.rotation.z = Math.PI;
+    face.add(grin);
+
+    /* two buck teeth hanging over the smile */
+    const teeth = new THREE.BoxGeometry(0.024, 0.034, 0.012);
+    for (const side of [1, -1]) {
+      const t = new THREE.Mesh(teeth, tooth);
+      t.position.set(side * 0.015, -0.052, 0.132);
+      t.rotation.z = side * 0.06;
+      face.add(t);
+    }
+
+    /* eyebrows, permanently surprised */
+    const brow = new THREE.BoxGeometry(0.062, 0.013, 0.013);
+    for (const side of [1, -1]) {
+      const b = new THREE.Mesh(brow, black);
+      b.position.set(side * 0.06, 0.098, 0.122);
+      b.rotation.z = side * -0.3;
+      face.add(b);
+    }
   }
 
   setXray(on) {
@@ -134,7 +191,7 @@ class CreatureView {
 
     let leftFeet = 0;
     let rightFeet = 0;
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < this.creature.contacts.length; i++) {
       if (!this.creature.contacts[i]) continue;
       if (i % 2 === 0) leftFeet += 1;
       else rightFeet += 1;
@@ -142,23 +199,15 @@ class CreatureView {
     this.footMat[0].emissiveIntensity = leftFeet ? 1.5 : this.xray ? 0.8 : 0.4;
     this.footMat[1].emissiveIntensity = rightFeet ? 1.5 : this.xray ? 0.8 : 0.4;
 
-    /* eyes: head + forward + sideways, so the face reads even in silhouette */
+    /* the face rides the head, oriented by the torso and the body's heading */
     const I = this.creature.index;
     const head = pts[I.head];
-    const neck = pts[I.neck];
-    const sl = pts[I.hipFL];
-    const sr = pts[I.hipFR];
-    const fwd = this.tmpFwd;
-    const right = this.tmpRight;
-    fwd.set(head.x - neck.x, head.y - neck.y, head.z - neck.z).normalize();
-    right.set(sl.x - sr.x, sl.y - sr.y, sl.z - sr.z).normalize();
-    for (const eye of this.eyes) {
-      eye.mesh.position.set(
-        head.x + fwd.x * 0.125 + right.x * 0.05 * eye.side,
-        head.y + fwd.y * 0.125 + right.y * 0.05 * eye.side + 0.025,
-        head.z + fwd.z * 0.125 + right.z * 0.05 * eye.side
-      );
-    }
+    const torso = this.creature.torso ? this.creature.torso() : { x: 0, y: 1, z: 0 };
+    const f = this.creature.forward ? this.creature.forward() : { x: 0, z: 1 };
+    this.face.position.set(head.x, head.y, head.z);
+    this.face.up.set(torso.x, torso.y, torso.z);
+    this.tmpLook.set(head.x + f.x, head.y + torso.y * 0.1, head.z + f.z);
+    this.face.lookAt(this.tmpLook);
   }
 }
 
