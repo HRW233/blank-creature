@@ -9,6 +9,14 @@
   const $ = (id) => document.getElementById(id);
   const canvas = $('scene');
 
+  /* HUD writes are best effort: an out-of-date cached page missing a row must
+     never throw in here, because that would stop the render loop and freeze
+     every number on screen at whatever it happened to show */
+  const setText = (id, value) => {
+    const el = $(id);
+    if (el) el.textContent = value;
+  };
+
   const SPEEDS = { slow: 1.0, normal: 0.3, fast: 0.1 };
   const SPEED_ORDER = ['slow', 'normal', 'fast'];
 
@@ -34,6 +42,7 @@
     target: { x: 0, z: CR.TRACK },
     bestTime: 0,
     prevDist: 0,
+    warned: false,
     hudClock: 0,
     vizClock: 0,
   };
@@ -201,6 +210,19 @@
   }
 
   function frame(now) {
+    try {
+      tick(now);
+    } catch (err) {
+      /* one bad frame must not end the run: keep scheduling and keep counting */
+      if (!state.warned) {
+        state.warned = true;
+        console.error(err);
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  function tick(now) {
     let dt = (now - lastTime) / 1000;
     lastTime = now;
     if (!(dt > 0)) dt = 1 / 60;
@@ -235,7 +257,6 @@
       state.vizClock = 0;
       drawBrain();
     }
-    requestAnimationFrame(frame);
   }
 
   function drawTelemetry() {
@@ -244,31 +265,34 @@
     const up = Math.max(0, creature.upY());
     const speed = creature.pelvisSpeed();
 
-    $('stat-gen').textContent = evo.generation;
-    $('stat-ep').textContent = evo.episodes;
-    $('stat-best').textContent = evo.bestFit === -Infinity ? '—' : evo.bestFit.toFixed(2);
+    setText('stat-gen', evo.generation);
+    /* the offline run's episodes plus every attempt watched since load, so the
+       counter keeps climbing instead of stopping at the baked-in total */
+    setText('stat-ep', evo.episodes + (state.attempts - 1));
+    setText('stat-best', evo.bestFit === -Infinity ? '—' : evo.bestFit.toFixed(2));
     if (reward) {
       const parts = reward.parts;
-      $('stat-reward').textContent = (reward.total >= 0 ? '+' : '') + reward.total.toFixed(1);
+      setText('stat-reward', (reward.total >= 0 ? '+' : '') + reward.total.toFixed(1));
       const paid = Math.max(1e-6, parts.stand + parts.progress + parts.upright + parts.survive + parts.finish);
-      $('stat-paid').textContent = 'stand ' + Math.round((parts.stand / paid) * 100) +
+      setText('stat-paid', 'stand ' + Math.round((parts.stand / paid) * 100) +
         '% · run ' + Math.round((parts.progress / paid) * 100) +
-        '% · line ' + Math.round((parts.finish / paid) * 100) + '%';
+        '% · line ' + Math.round((parts.finish / paid) * 100) + '%');
     }
-    $('stat-up').textContent = Math.round(up * 100) + '%';
-    $('stat-range').textContent = covered.toFixed(1) + ' / ' + CR.TRACK + ' m';
-    $('stat-clock').textContent = state.attemptTime.toFixed(2) + ' s';
-    $('stat-speed').textContent = speed.toFixed(2) + ' m/s';
-    $('stat-besttime').textContent = state.bestTime
+    setText('stat-up', Math.round(up * 100) + '%');
+    setText('stat-range', covered.toFixed(1) + ' / ' + CR.TRACK + ' m');
+    setText('stat-clock', state.attemptTime.toFixed(2) + ' s');
+    setText('stat-speed', speed.toFixed(2) + ' m/s');
+    setText('stat-besttime', state.bestTime
       ? state.bestTime.toFixed(2) + ' s' + (state.bestTime < CR.BOLT ? ' · BEAT BOLT' : '')
-      : '—';
-    $('stat-attempts').textContent = state.attempts;
-    $('stat-state').textContent = state.paused ? 'PAUSED'
+      : '—');
+    setText('stat-attempts', state.attempts);
+    setText('stat-state', state.paused ? 'PAUSED'
       : state.downTime > 0.2 ? 'DOWN'
-        : up > 0.7 ? 'UPRIGHT' : 'SCRAMBLING';
+        : up > 0.7 ? 'UPRIGHT' : 'SCRAMBLING');
 
     const prog = evo.candidates.length ? evo.cursor / evo.candidates.length : 0;
-    $('gen-bar').style.width = Math.round(prog * 100) + '%';
+    const bar = $('gen-bar');
+    if (bar) bar.style.width = Math.round(prog * 100) + '%';
 
     for (const b of bars) {
       let sum = 0;
