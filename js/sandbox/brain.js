@@ -18,6 +18,91 @@ const BRAIN = {
   EVAL_MS: 7,
 };
 
+/* ------------------------------------------------------------------ *
+ * The reward system. One episode pays out six named parts and their   *
+ * sum is the return evolution ranks a candidate by. Nothing here is a *
+ * script: the creature is never told to stand, it is only ever paid.  *
+ * Metres count only while the torso is upright, so crawling to the    *
+ * line earns nothing, and the finish pays a bonus for the clock left. *
+ * ------------------------------------------------------------------ */
+const REWARD = {
+  PROGRESS: 5.0,      // per metre gained in the right direction
+  STAY_FLOOR: 0.2,    // that much of the progress is paid whatever happens next
+  STAY_GAIN: 0.8,     // the rest scales with how long he stays on his feet
+  STAND: 20.0,        // per episode: standing tall, hips out of a crouch
+  UPRIGHT: 1.0,       // per episode: torso kept near vertical
+  SURVIVE: 2.0,       // per episode: lasting the full ten seconds
+  EFFORT: 0.02,       // charged per episode for muscle effort spent
+  FINISH: 40.0,       // crossing the line at all
+  FINISH_TIME: 25.0,  // times the fraction of the ten seconds still left
+  DOWN: 60,           // steps flat on the floor before the episode ends
+};
+
+class Reward {
+  constructor() {
+    this.parts = {};
+    this.reset();
+  }
+
+  reset() {
+    this.parts = { progress: 0, stand: 0, upright: 0, survive: 0, effort: 0, finish: 0 };
+    this.total = 0;
+    this.steps = 0;
+    this.low = 0;
+    this.fell = false;
+    this.finished = false;
+    this.timeLeft = 0;
+  }
+
+  /* one physics step: the only place the creature ever earns anything */
+  step(c, gained, up) {
+    this.steps++;
+    const share = 1 / BRAIN.STEPS;
+
+    /* forward progress, but only on two feet: the torso has to be within
+       about forty degrees of vertical and the hips up out of a crouch, and
+       the pay is discounted by how early in the episode it arrived, so a
+       lunge that ends in a faceplant is never worth a stride */
+    if (gained > 0 && up > 0.8 && c.pelvisY() > 0.6) {
+      const stay = REWARD.STAY_FLOOR + REWARD.STAY_GAIN * (this.steps / BRAIN.STEPS);
+      const pay = REWARD.PROGRESS * gained * stay;
+      this.parts.progress += pay;
+      this.total += pay;
+    }
+
+    const tall = Math.max(0, Math.min(1, (c.pelvisY() - 0.55) / 0.3));
+    const stand = REWARD.STAND * tall * share;
+    const posture = REWARD.UPRIGHT * Math.max(0, up) * share;
+    const survive = REWARD.SURVIVE * share;
+    const effort = -REWARD.EFFORT * c.energy() * share;
+    this.parts.stand += stand;
+    this.parts.upright += posture;
+    this.parts.survive += survive;
+    this.parts.effort += effort;
+    this.total += stand + posture + survive + effort;
+
+    /* half a second on the floor ends the episode: standing up is the first
+       thing to learn, but a single stumbled frame is not a fall */
+    if (c.headY() < 0.34 || c.pelvisY() < 0.3) {
+      this.low++;
+      if (this.low > REWARD.DOWN) this.fell = true;
+    } else {
+      this.low = 0;
+    }
+    return this.total;
+  }
+
+  /* the line: the only reward that cares how fast he got there */
+  finish(timeLeft) {
+    this.finished = true;
+    this.timeLeft = Math.max(0, Math.min(1, timeLeft));
+    const pay = REWARD.FINISH + REWARD.FINISH_TIME * this.timeLeft;
+    this.parts.finish += pay;
+    this.total += pay;
+    return this.total;
+  }
+}
+
 class Brain {
   constructor(inDim, h1, h2, outDim) {
     this.sizes = [inDim, h1, h2, outDim];
@@ -195,62 +280,40 @@ class Evolution {
     this.brain.setWeights(weights);
     this.brain.reset();
 
+    if (!this.reward) this.reward = new Reward();
+    const rw = this.reward;
+    rw.reset();
+
     let prevDist = c.distanceTo(cfg.tx, cfg.tz);
-    let progress = 0;
-    let upright = 0;
-    let energy = 0;
-    let steps = 0;
-    let finished = false;
-    let down = 0;
-    let height = 0;
 
     for (let s = 0; s < BRAIN.STEPS; s++) {
       if (s % BRAIN.CONTROL_EVERY === 0) {
         const sens = c.sense(cfg.tx, cfg.tz);
-        const out = this.brain.forward(sens);
-        c.drive(out);
+        c.drive(this.brain.forward(sens));
       }
       c.step();
-      steps++;
 
       const d = c.distanceTo(cfg.tx, cfg.tz);
-      const up = c.upY();
-      /* distance only pays on two feet: the torso has to be within about
-         forty degrees of vertical and the hips up out of a crouch, so
-         crawling to the finish earns nothing */
-      if (up > 0.8 && c.pelvisY() > 0.6) progress += prevDist - d;
+      rw.step(c, prevDist - d, c.upY());
       prevDist = d;
-      if (up > 0) upright += up;
-      /* paid for standing tall, not for getting along on hands and knees */
-      height += Math.max(0, Math.min(1, (c.pelvisY() - 0.55) / 0.3));
-      energy += c.energy();
 
-      if (c.pelvis().z >= CR.TRACK) { finished = true; break; }
-      /* half a second on the floor ends the episode: standing up is the first
-         thing to learn, but a single stumbled frame is not a fall */
-      if (c.headY() < 0.34 || c.pelvisY() < 0.3) {
-        down++;
-        if (down > 60) break;
-      } else {
-        down = 0;
+      if (c.pelvis().z >= CR.TRACK) {
+        rw.finish(1 - rw.steps / BRAIN.STEPS);
+        break;
       }
+      if (rw.fell) break;
     }
 
-    const survived = steps / BRAIN.STEPS;
-    /* ground covered only pays in proportion to staying on your feet, so a
-       lunge that ends in a faceplant is never worth more than a stride */
-    const stability = 0.2 + 0.8 * survived;
-    const timeLeft = Math.max(0, 1 - steps / BRAIN.STEPS);
-    return (
-      /* standing tall is worth more than any amount of crawling, so the
-         first thing evolution has to buy is a body that stays up */
-      5.0 * progress * stability +
-      2.0 * survived +
-      20.0 * (height / steps) +
-      1.0 * (upright / steps) -
-      0.02 * (energy / steps) +
-      (finished ? 40 + 25 * timeLeft : 0)
-    );
+    /* what this candidate was actually paid, kept so the trainer and the page
+       can show where an episode's points came from */
+    this.lastReward = {
+      total: rw.total,
+      parts: { progress: rw.parts.progress, stand: rw.parts.stand, upright: rw.parts.upright,
+        survive: rw.parts.survive, effort: rw.parts.effort, finish: rw.parts.finish },
+      finished: rw.finished,
+      steps: rw.steps,
+    };
+    return rw.total;
   }
 
   finishGeneration() {
