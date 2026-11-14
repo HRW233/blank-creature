@@ -3,8 +3,8 @@
 /* ------------------------------------------------------------------ *
  * creature.js - the body. An upright biped: pelvis, chest, shoulders, *
  * neck and head, two three-segment legs with feet, and two arms.      *
- * 21 point masses, 37 bones and 25 contractile muscles, integrated   *
- * as a verlet ragdoll.                                                *
+ * 21 point masses, 25 bones, 8 braces and 25 contractile muscles,     *
+ * integrated as a verlet ragdoll.                                     *
  *                                                                     *
  * No rendering lives here on purpose: the trainer runs whole episodes *
  * against this class without touching WebGL.                          *
@@ -71,17 +71,18 @@ const BODY_BONES = [
   ['kneeL', 'ankleL', 'leg'],
   ['ankleL', 'heelL', 'leg'],
   ['ankleL', 'toeL', 'leg'],
-  ['heelL', 'toeL', 'leg'],
-  ['hipL', 'ankleL', 'leg'],
-  ['kneeL', 'heelL', 'leg'],
 
   ['pelvis', 'hipR', 'leg'],
   ['hipR', 'kneeR', 'leg'],
   ['kneeR', 'ankleR', 'leg'],
   ['ankleR', 'heelR', 'leg'],
   ['ankleR', 'toeR', 'leg'],
+
+  ['heelL', 'toeL', 'leg'],
   ['heelR', 'toeR', 'leg'],
+  ['hipL', 'ankleL', 'leg'],
   ['hipR', 'ankleR', 'leg'],
+  ['kneeL', 'heelL', 'leg'],
   ['kneeR', 'heelR', 'leg'],
 
   ['pelvis', 'neck', 'torso'],
@@ -103,10 +104,10 @@ const BODY_BRACES = [
 
 /* id, a, b, stiffness, min length as a fraction of rest.
 
-   The leg bones hold each leg straight and lock the foot flat, so the body
-   stands on two plates instead of folding at the knee. The muscles swing the
-   legs at the hip and drive the arms and torso: all the learning goes into
-   where to put its feet and how to keep the trunk up. */
+   Each leg is a braced triangle: hip-to-ankle runs over the knee as a
+   telescoping strut, and the foot muscles pin heel and toe around the ankle.
+   A triangle cannot buckle, so the body stands without any control at all
+   and all the learning goes into where to put its feet. */
 const BODY_MUSCLES = [
   /* left leg: the bones hold it straight, these swing it at the hip */
   ['hipFlexL', 'pelvis', 'kneeL', 0.9],
@@ -417,7 +418,7 @@ class Creature {
     return 1 - this.torso().y;
   }
 
-  /* forward direction on the floor, from the hip axis */
+  /* forward direction on the floor, from the pelvis/head axis and the hips */
   forward() {
     const pts = this.points;
     const a = pts[this.index.hipL];
