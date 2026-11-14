@@ -13,7 +13,7 @@ const BRAIN = {
   POP: 24,
   SIGMA: 0.1,
   LR: 0.025,
-  STEPS: 720,
+  STEPS: 1200,
   CONTROL_EVERY: 3,
   EVAL_MS: 7,
 };
@@ -137,13 +137,12 @@ class Evolution {
     this.generation++;
     const rnd = SB.rng(this.generation * 7919 + 13);
 
-    /* one goal and one starting wobble shared by the whole generation, so the
-       scores of the candidates are actually comparable */
-    const ang = (rnd() * 2 - 1) * 0.95;
-    const rad = 2.0 + rnd() * 1.9;
+    /* one finishing line and one starting wobble shared by the whole
+       generation, so the scores of the candidates are actually comparable.
+       The line is 100 m up the lane: this is a sprint, not a wander. */
     const cfg = {
-      tx: Math.sin(ang) * rad,
-      tz: Math.cos(ang) * rad,
+      tx: (rnd() * 2 - 1) * 1.0,
+      tz: CR.TRACK,
       offsets: new Float32Array(this.creature.points.length * 3),
     };
     for (let i = 0; i < cfg.offsets.length; i++) cfg.offsets[i] = (rnd() * 2 - 1) * 0.014;
@@ -196,12 +195,14 @@ class Evolution {
     this.brain.setWeights(weights);
     this.brain.reset();
 
-    const startDist = c.distanceTo(cfg.tx, cfg.tz);
-    let prevDist = startDist;
+    let prevDist = c.distanceTo(cfg.tx, cfg.tz);
     let progress = 0;
     let upright = 0;
     let energy = 0;
     let steps = 0;
+    let finished = false;
+    let down = 0;
+    let height = 0;
 
     for (let s = 0; s < BRAIN.STEPS; s++) {
       if (s % BRAIN.CONTROL_EVERY === 0) {
@@ -214,29 +215,41 @@ class Evolution {
 
       const d = c.distanceTo(cfg.tx, cfg.tz);
       const up = c.upY();
-      /* only credit ground covered while still standing: falling toward the
-         goal is not locomotion, and neither is dragging your belly */
-      if (up > 0.55 && c.pelvisY() > 0.34) progress += prevDist - d;
+      /* distance only pays on two feet: the torso has to be within about
+         forty degrees of vertical and the hips up out of a crouch, so
+         crawling to the finish earns nothing */
+      if (up > 0.8 && c.pelvisY() > 0.6) progress += prevDist - d;
       prevDist = d;
       if (up > 0) upright += up;
+      /* paid for standing tall, not for getting along on hands and knees */
+      height += Math.max(0, Math.min(1, (c.pelvisY() - 0.55) / 0.3));
       energy += c.energy();
 
-      /* falling ends the episode: survival is the first thing to learn */
-      if (c.headY() < 0.34 || c.pelvisY() < 0.3) break;
+      if (c.pelvis().z >= CR.TRACK) { finished = true; break; }
+      /* half a second on the floor ends the episode: standing up is the first
+         thing to learn, but a single stumbled frame is not a fall */
+      if (c.headY() < 0.34 || c.pelvisY() < 0.3) {
+        down++;
+        if (down > 60) break;
+      } else {
+        down = 0;
+      }
     }
 
     const survived = steps / BRAIN.STEPS;
-    const endDist = c.distanceTo(cfg.tx, cfg.tz);
-    const closeness = 1 - endDist / (endDist + 1);
     /* ground covered only pays in proportion to staying on your feet, so a
        lunge that ends in a faceplant is never worth more than a stride */
     const stability = 0.2 + 0.8 * survived;
+    const timeLeft = Math.max(0, 1 - steps / BRAIN.STEPS);
     return (
-      8.0 * progress * stability +
-      4.0 * survived +
-      1.5 * closeness * survived +
-      0.5 * (upright / steps) -
-      0.02 * (energy / steps)
+      /* standing tall is worth more than any amount of crawling, so the
+         first thing evolution has to buy is a body that stays up */
+      5.0 * progress * stability +
+      2.0 * survived +
+      20.0 * (height / steps) +
+      1.0 * (upright / steps) -
+      0.02 * (energy / steps) +
+      (finished ? 40 + 25 * timeLeft : 0)
     );
   }
 
@@ -289,6 +302,11 @@ class Evolution {
 
     this.curve.push({ best: this.lastMeans.best, mean: this.lastMeans.mean, top: this.bestFit });
     if (this.curve.length > 240) this.curve.shift();
+    /* keep a coarse history for the published page: one point per 100 gens */
+    if (this.generation === 1 || this.generation % 100 === 0) {
+      if (!this.history) this.history = [];
+      this.history.push([this.generation, Number(this.bestFit.toFixed(2)), Number(this.lastMeans.mean.toFixed(2))]);
+    }
 
     this.candidates = [];
     this.cursor = 0;
