@@ -41,6 +41,7 @@
     edgeVersion: -1,
     target: { x: 0, z: CR.TRACK },
     bestTime: 0,
+    bestProj: 0,
     prevDist: 0,
     warned: false,
     hudClock: 0,
@@ -184,9 +185,17 @@
       guard++;
     }
 
+    /* until he actually crosses the line, the 100 m row shows the time his
+       best pace so far would produce, so it is never just a dash */
+    const pel = creature.pelvis();
+    const covered = Math.max(0, Math.min(CR.TRACK, pel.z));
+    if (state.attemptTime > 0.4 && covered > 0.5) {
+      const proj = (state.attemptTime / covered) * CR.TRACK;
+      if (proj < 1000 && (!state.bestProj || proj < state.bestProj)) state.bestProj = proj;
+    }
+
     /* the race: cross the line and the clock stops, run out of ten seconds
        and the attempt is over. Bolt's record is the thing to beat. */
-    const pel = creature.pelvis();
     if (pel.z >= CR.TRACK) {
       if (!state.bestTime || state.attemptTime < state.bestTime) {
         state.bestTime = state.attemptTime;
@@ -287,7 +296,11 @@
     setText('stat-speed', speed.toFixed(2) + ' m/s');
     setText('stat-besttime', state.bestTime
       ? state.bestTime.toFixed(2) + ' s' + (state.bestTime < CR.BOLT ? ' · BEAT BOLT' : '')
-      : '—');
+      : state.bestProj
+        ? '≈ ' + (state.bestProj >= 100
+          ? Math.round(state.bestProj) + ' s'
+          : state.bestProj.toFixed(1) + ' s')
+        : '—');
     setText('stat-attempts', state.attempts);
     setText('stat-state', state.paused ? 'PAUSED'
       : state.downTime > 0.2 ? 'DOWN'
