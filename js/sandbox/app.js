@@ -13,12 +13,11 @@
   const SPEED_ORDER = ['slow', 'normal', 'fast'];
 
   const MUSCLE_GROUPS = [
-    { name: 'FRONT L', from: 0, to: 4 },
-    { name: 'FRONT R', from: 4, to: 8 },
-    { name: 'BACK L', from: 8, to: 12 },
-    { name: 'BACK R', from: 12, to: 16 },
-    { name: 'SPINE', from: 16, to: 23 },
-    { name: 'TAIL', from: 23, to: 25 },
+    { name: 'LEG L', from: 0, to: 5 },
+    { name: 'LEG R', from: 5, to: 10 },
+    { name: 'ARM L', from: 10, to: 15 },
+    { name: 'ARM R', from: 15, to: 20 },
+    { name: 'TORSO', from: 20, to: 25 },
   ];
 
   const state = {
