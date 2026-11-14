@@ -45,6 +45,7 @@
     bestReward: 0,
     bestAttempt: 0,
     sessionTime: 0,
+    frameMs: 16.7,
     prevDist: 0,
     warned: false,
     hudClock: 0,
@@ -179,25 +180,34 @@
     el.classList.add('flash');
   }
 
-  /* One lane works per frame and they take turns, so fifteen generations are
-     in flight at once while the frame still pays for a single episode. A lane
-     therefore sees time compressed by the number of lanes: pass its own share
-     of the wait back as real time so a generation starts when it should. */
+  /* Lanes take turns inside one frame's training budget, so fifteen
+     generations are in flight at once and the frame keeps scoring episodes
+     until TRAIN_MS is used up. A lane sees time compressed by the number of
+     lanes, so it gets its own share of the wait back as real time. */
   function trainSwarm(dt) {
     if (!swarm.length) return;
-    const lane = swarm[frameLane % swarm.length];
-    const index = frameLane % swarm.length;
-    frameLane = (frameLane + 1) % swarm.length;
-    lane.advance(dt * swarm.length, SPEEDS[state.speed], BRAIN.EVAL_MS);
-    if (lane.bestFit > sharedFit) {
-      sharedFit = lane.bestFit;
-      sharedTheta = Float32Array.from(lane.bestTheta);
-      brain.setWeights(sharedTheta);
-      state.policyVersion++;
-      world.flash();
-      flashHud();
-      setNote('lane ' + (index + 1) + ' · gen ' + lane.generation);
-    }
+    /* if frames are already slow, take one episode per frame again rather than
+       pushing the scene further behind */
+    const budget = state.frameMs > 26 ? BRAIN.EVAL_MS : BRAIN.TRAIN_MS;
+    const t0 = performance.now();
+    let turns = 0;
+    do {
+      const index = frameLane;
+      const lane = swarm[index];
+      frameLane = (frameLane + 1) % swarm.length;
+      const left = budget - (performance.now() - t0);
+      lane.advance(dt * swarm.length, SPEEDS[state.speed], Math.max(1, left));
+      if (lane.bestFit > sharedFit) {
+        sharedFit = lane.bestFit;
+        sharedTheta = Float32Array.from(lane.bestTheta);
+        brain.setWeights(sharedTheta);
+        state.policyVersion++;
+        world.flash();
+        flashHud();
+        setNote('lane ' + (index + 1) + ' · gen ' + lane.generation);
+      }
+      turns++;
+    } while (performance.now() - t0 < budget && turns < swarm.length);
   }
 
   function stepActor(dt) {
@@ -279,6 +289,7 @@
     if (dt > 0.1) dt = 0.1;
     /* wall clock since the page opened: the one number that always moves */
     state.sessionTime += dt;
+    state.frameMs += (dt * 1000 - state.frameMs) * 0.1;
 
     if (!state.paused) {
       if (state.training) trainSwarm(dt);
